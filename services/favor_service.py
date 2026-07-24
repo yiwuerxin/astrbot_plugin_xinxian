@@ -85,6 +85,28 @@ class FavorService:
         rows.sort(key=lambda r: r.favor, reverse=True)
         return rows
 
+    async def standings(self, group_id: str | None = None, limit: int = 500) -> list[dict]:
+        """当前总览：每个成员的有效好感/等级/关系/闲置天数（供 WebUI）。按有效好感降序。"""
+        recs = await self._storage.list_favor(group_id, limit)
+        now = time.time()
+        out: list[dict] = []
+        for r in recs:
+            eff = self._effective(r.favor, r.updated_at)
+            idle = int((now - r.updated_at) // 86400) if r.updated_at > 0 else None
+            out.append({
+                "group_id": r.group_id,
+                "user_id": r.user_id,
+                "favor": eff,
+                "stored_favor": round1(r.favor),
+                "decayed": round1(r.favor) != eff,
+                "level": self.level_of(eff).name,
+                "relationship": self.relationship_label(r.relationship) if r.relationship else "",
+                "updated_at": r.updated_at,
+                "idle_days": idle,
+            })
+        out.sort(key=lambda x: x["favor"], reverse=True)
+        return out
+
     def level_of(self, favor: float) -> LevelDef:
         return self._levels.level_of(favor)
 
