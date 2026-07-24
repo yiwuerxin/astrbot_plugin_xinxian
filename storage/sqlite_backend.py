@@ -126,6 +126,24 @@ class SQLiteBackend(StorageBackend):
             ).fetchall()
         return [FavorRecord(group_id, r[0], float(r[1]), r[2]) for r in rows]
 
+    async def list_favor(self, group_id: str | None = None, limit: int = 500) -> list[FavorRecord]:
+        with self._lock:
+            if group_id:
+                rows = self._c().execute(
+                    "SELECT user_id, favor, updated_at, relationship FROM favor "
+                    "WHERE group_id=? ORDER BY updated_at DESC LIMIT ?",
+                    (group_id, limit),
+                ).fetchall()
+                recs = [FavorRecord(group_id, r[0], float(r[1]), r[2], r[3] or "") for r in rows]
+            else:
+                rows = self._c().execute(
+                    "SELECT group_id, user_id, favor, updated_at, relationship FROM favor "
+                    "ORDER BY updated_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+                recs = [FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "") for r in rows]
+        return recs
+
     async def daily_gain(self, group_id: str, user_id: str, day: str) -> float:
         with self._lock:
             row = self._c().execute(
