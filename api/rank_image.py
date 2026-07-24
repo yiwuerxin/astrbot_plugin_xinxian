@@ -57,6 +57,20 @@ def _favor_str(v) -> str:
     return ("%g" % f) if f == int(f) else ("%.1f" % f)
 
 
+def _fit(draw, text: str, font, max_w: int) -> str:
+    """按实际文字宽度截断 text 到 max_w 内（超出加 …），保证不溢出格子。"""
+    if draw.textbbox((0, 0), text, font=font)[2] <= max_w:
+        return text
+    lo, hi = 1, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if draw.textbbox((0, 0), text[:mid] + "…", font=font)[2] <= max_w:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:max(lo, 1)] + "…"
+
+
 def render_ranking(
     rows: list[dict],
     querier_id,
@@ -106,9 +120,7 @@ def render_ranking(
         nick = str(r.get("nickname") or "").strip()
         last4 = _last4(r.get("user_id", ""))
         label = f"{nick} ({last4})" if nick else f"({last4})"
-        if len(label) > 18:
-            label = label[:17] + "…"
-        txt = f"{label}: {_favor_str(r.get('favor', 0))}"
+        txt = _fit(draw, f"{label}: {_favor_str(r.get('favor', 0))}", f_cell, cell_w - 24)
         color = _HL_TEXT if is_q else _TEXT
         bbox = draw.textbbox((0, 0), txt, font=f_cell)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
