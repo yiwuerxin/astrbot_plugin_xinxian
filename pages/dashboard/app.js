@@ -30,8 +30,18 @@ createApp({
     };
     const fmtIdle = (d) =>
       d == null ? "从未" : d <= 0 ? "今天" : d === 1 ? "昨天" : `${d}天前`;
-    const fmtUser = (u) =>
-      u.nickname ? `${u.nickname} (${u.user_id})` : `(${u.user_id})`;
+    const fmtUser = (u) => {
+      const id = u.user_id;
+      const nick = (u.nickname || "").trim();
+      if (!nick) return `(${id})`;
+      let w = 0, out = "";
+      for (const ch of nick) {
+        const cw = ch.codePointAt(0) > 0x2e80 ? 2 : 1;
+        if (w + cw > 16) { out += "…"; break; }
+        out += ch; w += cw;
+      }
+      return `${out} (${id})`;
+    };
     const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定" };
     const sourceLabel = (s) => SOURCE_LABEL[s] || s || "-";
 
