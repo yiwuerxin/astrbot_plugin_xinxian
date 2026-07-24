@@ -88,7 +88,7 @@ def render_ranking(
     cols = max(1, math.ceil(n / rows_per_col)) if n else 1
     rows_in_col = math.ceil(n / cols) if n else 1
 
-    cell_w, cell_h = 300, 46
+    cell_w, cell_h = 360, 46
     gap_x, gap_y = 14, 12
     pad = 24
     title_h = 56
@@ -119,8 +119,13 @@ def render_ranking(
         )
         nick = str(r.get("nickname") or "").strip()
         last4 = _last4(r.get("user_id", ""))
-        label = f"{nick} ({last4})" if nick else f"({last4})"
-        txt = _fit(draw, f"{label}: {_favor_str(r.get('favor', 0))}", f_cell, cell_w - 24)
+        suffix = f"({last4}): {_favor_str(r.get('favor', 0))}"  # QQ后4位 + 好感：永不截断
+        if nick:
+            suffix_w = draw.textbbox((0, 0), suffix, font=f_cell)[2]
+            nick = _fit(draw, nick, f_cell, max(cell_w - 24 - suffix_w - 12, 36))
+            txt = f"{nick} {suffix}"
+        else:
+            txt = suffix
         color = _HL_TEXT if is_q else _TEXT
         bbox = draw.textbbox((0, 0), txt, font=f_cell)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
