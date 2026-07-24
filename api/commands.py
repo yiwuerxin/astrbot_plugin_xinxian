@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from astrbot.api.event import AstrMessageEvent
 
+from ..core.decimal import fmt
 from ..services.favor_service import FavorService
 from . import llm_tools
 
@@ -22,13 +23,15 @@ async def handle_ranking(svc: FavorService, event: AstrMessageEvent, limit: int 
     return await llm_tools.tool_query_ranking(svc, event, limit)
 
 
-async def handle_set(svc: FavorService, event: AstrMessageEvent, target: str, value: int) -> str:
-    """/好感设置 <QQ号> <数值>（管理员）。"""
+async def handle_set(
+    svc: FavorService, event: AstrMessageEvent, target: str, value: float
+) -> str:
+    """/好感设置 <QQ号> <数值>（管理员，数值支持一位小数与负值）。"""
     target = (target or "").strip()
     if not target.isdigit():
         return "用法：/好感设置 QQ号 数值"
     rec = await svc.set_favor(event.get_group_id(), target, value)
-    return f"已将 QQ {target} 在本群的好感度设置为 {rec.favor}。"
+    return f"已将 QQ {target} 在本群的好感度设置为 {fmt(rec.favor)}。"
 
 
 async def handle_reset(svc: FavorService, event: AstrMessageEvent, target: str = "") -> str:
