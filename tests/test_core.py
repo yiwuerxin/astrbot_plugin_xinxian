@@ -57,28 +57,15 @@ class TestRuleMatcher:
     def setup_method(self):
         self.matcher = RuleMatcher.from_config(None)
 
-    def test_praised_keyword(self):
-        hits = self.matcher.match("小千好可爱")
-        assert [r.event for r in hits] == [EventType.PRAISED]
-
-    def test_insulted_keyword(self):
-        hits = self.matcher.match("你就是个沙比")
-        assert [r.event for r in hits] == [EventType.INSULTED]
-
-    def test_at_and_reply(self):
-        hits = self.matcher.match("在吗", has_at_bot=True, is_reply_bot=True)
-        events = {r.event for r in hits}
-        assert EventType.AT_MENTION in events
-        assert EventType.REPLY_BOT in events
-
     def test_first_today(self):
-        hits = self.matcher.match("早", is_first_today=True)
-        assert any(r.event == EventType.DAILY_FIRST for r in hits)
-        hits2 = self.matcher.match("早", is_first_today=False)
-        assert not any(r.event == EventType.DAILY_FIRST for r in hits2)
+        hits = self.matcher.match(is_first_today=True)
+        assert [r.event for r in hits] == [EventType.DAILY_FIRST]
+
+    def test_not_first_today(self):
+        assert self.matcher.match(is_first_today=False) == []
 
     def test_no_hit(self):
-        assert self.matcher.match("今天天气不错") == []
+        assert self.matcher.match() == []
 
 
 # ---------------- 身份 ----------------
@@ -194,17 +181,6 @@ class TestFavorService:
         ch3 = asyncio.run(svc.change("g1", "u1", -8))
         assert ch3.delta == 0
 
-    def test_rules_cooldown(self, tmp_path):
-        svc = _make_service(tmp_path)
-        matcher = RuleMatcher.from_config(None)
-        rules = matcher.match("小千好可爱")
-        ch1 = asyncio.run(svc.apply_rules("g1", "u1", rules))
-        assert ch1.delta == 3
-        # 冷却期内同类规则不再生效
-        ch2 = asyncio.run(svc.apply_rules("g1", "u1", rules))
-        assert ch2.delta == 0
-        assert ch2.clamped
-
     def test_per_group_independent(self, tmp_path):
         svc = _make_service(tmp_path, daily_cap_up=200)
         asyncio.run(svc.change("g1", "u1", 30))
@@ -232,7 +208,7 @@ class TestFavorService:
         svc = _make_service(tmp_path)
         assert asyncio.run(svc.is_first_today("g1", "u1")) is True
         matcher = RuleMatcher.from_config(None)
-        rules = matcher.match("早", is_first_today=True)
+        rules = matcher.match(is_first_today=True)
         asyncio.run(svc.apply_rules("g1", "u1", rules))
         assert asyncio.run(svc.is_first_today("g1", "u1")) is False
 
