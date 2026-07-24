@@ -99,6 +99,7 @@ class XinxianPlugin(Star):
                 if bool(judge_cfg.get("narrative_reason", False))
                 else "resources/prompts/judge_prompt.txt"
             ),
+            force_session_model=bool(judge_cfg.get("narrative_reason", False)),
         )
         self._deps = Deps(
             favor=self._favor,
