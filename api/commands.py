@@ -63,22 +63,27 @@ async def handle_set_relationship(
     return f"已将 QQ {target} 与小千的关系设为「{label}」。"
 
 
+async def build_rank_image(
+    svc: FavorService, event: AstrMessageEvent, font_path: str = "", rows_per_col: int = 12
+) -> str:
+    """渲染本群好感度排行为图片（查询人高亮），返回临时 PNG 路径。"""
+    rows = await svc.standings(event.get_group_id(), limit=max(rows_per_col * 5, rows_per_col))
+    from .rank_image import render_ranking
+    return render_ranking(rows, event.get_sender_id(), font_path=font_path, rows_per_col=rows_per_col)
+
+
 async def try_text_wake(
     svc: FavorService,
     event: AstrMessageEvent,
     query_phrases: set[str],
     ranking_phrases: set[str],
-    ranking_limit: int,
+    font_path: str = "",
+    rows_per_col: int = 12,
 ) -> str | None:
-    """群聊文字唤醒：整条消息精确命中短语 → 返回对应查询回复；否则 None。
-
-    带 / 前缀的消息不在此处理（交由 / 指令），避免重复回复。
-    """
+    """群聊文字唤醒：命中短语 → 返回排行图片路径；否则 None。带 / 的交由 / 指令。"""
     msg = (event.message_str or "").strip()
     if not msg or msg.startswith("/"):
         return None
-    if msg in query_phrases:
-        return await handle_query(svc, event)
-    if msg in ranking_phrases:
-        return await handle_ranking(svc, event, ranking_limit)
+    if msg in query_phrases or msg in ranking_phrases:
+        return await build_rank_image(svc, event, font_path, rows_per_col)
     return None
