@@ -31,46 +31,8 @@
   },
   "rules": {
     "type": "object",
-    "description": "规则事件：明确行为触发的好感度增减",
+    "description": "规则事件：每日首次互动触发的好感度增减",
     "items": {
-      "praised": {
-        "type": "object",
-        "description": "被夸",
-        "items": {
-          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
-          "delta": { "type": "float", "default": 3, "description": "分值（支持一位小数）" },
-          "cooldown_sec": { "type": "int", "default": 300, "description": "同一成员冷却秒数" },
-          "keywords": { "type": "string", "default": "厉害,可爱,喜欢,棒,谢谢,爱你", "description": "触发关键词，英文逗号分隔" }
-        }
-      },
-      "insulted": {
-        "type": "object",
-        "description": "被骂",
-        "items": {
-          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
-          "delta": { "type": "float", "default": -5, "description": "分值（负数，支持一位小数）" },
-          "cooldown_sec": { "type": "int", "default": 300, "description": "同一成员冷却秒数" },
-          "keywords": { "type": "string", "default": "沙比,笨,蠢,垃圾,讨厌,闭嘴", "description": "触发关键词，英文逗号分隔" }
-        }
-      },
-      "at_mention": {
-        "type": "object",
-        "description": "@小千",
-        "items": {
-          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
-          "delta": { "type": "float", "default": 1, "description": "分值（支持一位小数）" },
-          "cooldown_sec": { "type": "int", "default": 600, "description": "同一成员冷却秒数" }
-        }
-      },
-      "reply_bot": {
-        "type": "object",
-        "description": "回复小千的消息",
-        "items": {
-          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
-          "delta": { "type": "float", "default": 1, "description": "分值（支持一位小数）" },
-          "cooldown_sec": { "type": "int", "default": 600, "description": "同一成员冷却秒数" }
-        }
-      },
       "daily_first": {
         "type": "object",
         "description": "当日首次互动",
