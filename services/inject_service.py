@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import time
+
 from ..core.decimal import fmt
 from ..core.levels import LevelTable
 from ..core.models import FavorRecord
@@ -32,8 +34,13 @@ class InjectService:
         *,
         is_master: bool,
         nickname: str | None = None,
+        recent_events: list[dict] | None = None,
     ) -> str:
-        """按模板渲染好感度档案块。主人身份以文本叠加，不影响数值逻辑。"""
+        """按模板渲染好感度档案块。主人身份以文本叠加，不影响数值逻辑。
+
+        recent_events：最近变动流水（dict 列表），渲染为「近期印象」注入，
+        让小千记得具体的事，而非只看一个分数。
+        """
         lv = self._levels.level_of(record.favor)
         master_line = (
             f"，TA 是你的{self._master_title}"
@@ -41,6 +48,7 @@ class InjectService:
             if is_master
             else ""
         )
+        events_block = self._format_events(recent_events or [])
         return self._template.format(
             nickname=nickname or "对方",
             user_id=record.user_id,
@@ -49,7 +57,24 @@ class InjectService:
             max_favor=fmt(self._max_favor),
             level_name=lv.name,
             level_guidance=lv.guidance,
+            recent_events=events_block,
         )
+
+    @staticmethod
+    def _format_events(events: list[dict]) -> str:
+        """把最近变动渲染为「近期印象」段；无内容返回空串（模板里自然消失）。"""
+        if not events:
+            return ""
+        now = time.time()
+        lines: list[str] = []
+        for e in events:
+            reason = str(e.get("reason") or "").strip() or "变动"
+            d = float(e.get("delta") or 0)
+            sign = "+" if d > 0 else ""
+            days = int((now - float(e.get("ts") or 0)) // 86400)
+            when = "今天" if days <= 0 else ("昨天" if days == 1 else f"{days}天前")
+            lines.append(f"  · {reason}（{sign}{fmt(d)}，{when}）")
+        return "\n- 近期印象：\n" + "\n".join(lines)
 
     def inject(self, req, block: str) -> None:
         """把档案块追加到 req.system_prompt（只追加不覆盖）。"""

@@ -34,6 +34,8 @@ class Deps:
     inject: InjectService
     matcher: RuleMatcher
     inject_enabled: bool = True
+    memory_count: int = 3
+    memory_days: int = 7
 
 
 def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
@@ -102,7 +104,13 @@ async def on_llm_request(
         nickname = event.get_sender_name()
     except Exception:
         nickname = None
+    events = await deps.favor.recent_events(
+        group_id, user_id, deps.memory_count, deps.memory_days
+    )
     block = deps.inject.build_block(
-        rec, is_master=deps.favor.is_master(user_id), nickname=nickname
+        rec,
+        is_master=deps.favor.is_master(user_id),
+        nickname=nickname,
+        recent_events=events,
     )
     deps.inject.inject(req, block)
