@@ -20,8 +20,8 @@ class XinxianFacade:
     def __init__(self, favor: FavorService) -> None:
         self._favor = favor
 
-    async def get_favor(self, group_id: str, user_id: str) -> int:
-        """查询好感度数值。无记录返回初始值。"""
+    async def get_favor(self, group_id: str, user_id: str) -> float:
+        """查询好感度数值（精度一位小数，可为负）。无记录返回初始值。"""
         rec = await self._favor.get(group_id, user_id)
         return rec.favor
 
@@ -29,7 +29,7 @@ class XinxianFacade:
         """查询完整等级信息。
 
         Returns:
-            {"favor": int, "level": str, "guidance": str, "is_master": bool}
+            {"favor": float, "level": str, "guidance": str, "is_master": bool}
         """
         rec = await self._favor.get(group_id, user_id)
         lv = self._favor.level_of(rec.favor)
@@ -41,13 +41,13 @@ class XinxianFacade:
         }
 
     async def add_favor(
-        self, group_id: str, user_id: str, delta: int, reason: str = "api"
-    ) -> int:
+        self, group_id: str, user_id: str, delta: float, reason: str = "api"
+    ) -> float:
         """增减好感度（受每日限幅），返回变化后的数值。"""
         change = await self._favor.change(group_id, user_id, delta, reason=reason)
         return change.favor_after
 
-    async def set_favor(self, group_id: str, user_id: str, value: int) -> int:
+    async def set_favor(self, group_id: str, user_id: str, value: float) -> float:
         """直接设定好感度，返回设定后的数值。"""
         rec = await self._favor.set_favor(group_id, user_id, value)
         return rec.favor

@@ -57,7 +57,8 @@ class XinxianPlugin(Star):
         except TypeError:  # 兼容需要显式插件名的版本
             data_dir = StarTools.get_data_dir("astrbot_plugin_xinxian")
 
-        max_favor = int(config.get("max_favor", 100))
+        max_favor = float(config.get("max_favor", 100))
+        min_favor = float(config.get("min_favor", -100))
         levels = LevelTable.from_config(config)
         master_ids = parse_master_ids(config.get("master_ids", ""))
 
@@ -66,9 +67,10 @@ class XinxianPlugin(Star):
             self._storage,
             levels,
             max_favor=max_favor,
-            default_favor=int(config.get("default_favor", 0)),
-            daily_cap_up=int(config.get("daily_cap_up", 15)),
-            daily_cap_down=int(config.get("daily_cap_down", 15)),
+            min_favor=min_favor,
+            default_favor=float(config.get("default_favor", 0)),
+            daily_cap_up=float(config.get("daily_cap_up", 15)),
+            daily_cap_down=float(config.get("daily_cap_down", 15)),
             master_ids=master_ids,
         )
 
@@ -90,7 +92,7 @@ class XinxianPlugin(Star):
             enabled=bool(judge_cfg.get("enabled", True)),
             provider_id=(judge_cfg.get("provider_id") or "").strip() or None,
             cooldown_sec=int(judge_cfg.get("cooldown_sec", 120)),
-            max_abs_delta=int(judge_cfg.get("max_abs_delta", 3)),
+            max_abs_delta=float(judge_cfg.get("max_abs_delta", 3)),
             only_when_at_or_reply=bool(judge_cfg.get("only_when_at_or_reply", True)),
             prompt_template=_read_resource("resources/prompts/judge_prompt.txt"),
         )
@@ -140,8 +142,8 @@ class XinxianPlugin(Star):
 
     @filter.command("好感设置")
     @filter.permission_type(filter.PermissionType.ADMIN)
-    async def _cmd_set(self, event: AstrMessageEvent, target: str = "", value: int = 0):
-        """设置某成员好感度（管理员）。用法：/好感设置 QQ号 数值"""
+    async def _cmd_set(self, event: AstrMessageEvent, target: str = "", value: float = 0.0):
+        """设置某成员好感度（管理员，支持一位小数与负值）。用法：/好感设置 QQ号 数值"""
         yield event.plain_result(await cmd.handle_set(self._favor, event, target, value))
 
     @filter.command("好感重置")

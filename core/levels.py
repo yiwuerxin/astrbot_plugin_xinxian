@@ -8,6 +8,7 @@ from __future__ import annotations
 from .models import LevelDef
 
 DEFAULT_LEVELS: list[LevelDef] = [
+    LevelDef("厌恶", -100, -1, "反感与回避，冷淡敷衍，抗拒亲近，语气生硬拒人于千里之外"),
     LevelDef("陌生", 0, 9, "礼貌而疏离，保持分寸，不主动亲昵"),
     LevelDef("认识", 10, 29, "友善客气，像刚认识的朋友"),
     LevelDef("友好", 30, 54, "放松自然，会开玩笑、主动接话"),
@@ -18,6 +19,7 @@ DEFAULT_LEVELS: list[LevelDef] = [
 
 # 等级名 -> 配置键（_conf_schema.json 中 levels 下的键）
 _LEVEL_KEYS = {
+    "厌恶": "yanwu",
     "陌生": "mosheng",
     "认识": "renshi",
     "友好": "youhao",
@@ -49,14 +51,14 @@ class LevelTable:
             levels.append(
                 LevelDef(
                     name=default.name,
-                    min_score=int(item.get("min", default.min_score)),
-                    max_score=int(item.get("max", default.max_score)),
+                    min_score=float(item.get("min", default.min_score)),
+                    max_score=float(item.get("max", default.max_score)),
                     guidance=str(item.get("guidance") or default.guidance),
                 )
             )
         return cls(levels)
 
-    def level_of(self, favor: int) -> LevelDef:
+    def level_of(self, favor: float) -> LevelDef:
         """返回数值对应的等级定义。"""
         result = self._levels[0]
         for lv in self._levels:

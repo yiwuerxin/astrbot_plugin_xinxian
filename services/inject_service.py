@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from ..core.decimal import fmt
 from ..core.levels import LevelTable
 from ..core.models import FavorRecord
 
@@ -18,7 +19,7 @@ class InjectService:
         levels: LevelTable,
         template: str,
         master_title: str = "主人",
-        max_favor: int = 100,
+        max_favor: float = 100,
     ) -> None:
         self._levels = levels
         self._template = template
@@ -44,8 +45,8 @@ class InjectService:
             nickname=nickname or "对方",
             user_id=record.user_id,
             master_line=master_line,
-            favor=record.favor,
-            max_favor=self._max_favor,
+            favor=fmt(record.favor),
+            max_favor=fmt(self._max_favor),
             level_name=lv.name,
             level_guidance=lv.guidance,
         )

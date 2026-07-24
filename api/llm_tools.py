@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from astrbot.api.event import AstrMessageEvent
 
+from ..core.decimal import fmt
 from ..services.favor_service import FavorService
 
 
@@ -19,7 +20,7 @@ async def tool_query_favor(
     rec = await svc.get(group_id, user_id)
     lv = svc.level_of(rec.favor)
     master = "，是小千的主人" if svc.is_master(user_id) else ""
-    return f"QQ {user_id}{master} 在本群对小千的好感度为 {rec.favor}（{lv.name}）。"
+    return f"QQ {user_id}{master} 在本群对小千的好感度为 {fmt(rec.favor)}（{lv.name}）。"
 
 
 async def tool_query_ranking(
@@ -31,7 +32,7 @@ async def tool_query_ranking(
     if not rows:
         return "本群还没有好感度记录。"
     lines = [
-        f"{i + 1}. QQ {r.user_id}：{r.favor}（{svc.level_of(r.favor).name}）"
+        f"{i + 1}. QQ {r.user_id}：{fmt(r.favor)}（{svc.level_of(r.favor).name}）"
         for i, r in enumerate(rows)
     ]
     return "本群对小千的好感度排行：\n" + "\n".join(lines)

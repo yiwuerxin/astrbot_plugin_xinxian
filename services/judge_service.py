@@ -23,7 +23,7 @@ from ..storage.base import StorageBackend
 class JudgeResult:
     """一次评估结果。"""
 
-    delta: int       # 调整分值（已限幅），0 = 中性
+    delta: float     # 调整分值（已限幅，精度一位小数），0 = 中性
     attitude: str    # 友好 / 敌意 / 中性
     raw: str         # 模型原始输出
 
@@ -43,7 +43,7 @@ class JudgeService:
         enabled: bool,
         provider_id: str | None,
         cooldown_sec: int,
-        max_abs_delta: int,
+        max_abs_delta: float,
         only_when_at_or_reply: bool,
         prompt_template: str,
     ) -> None:
@@ -114,7 +114,7 @@ class JudgeService:
         m = self._PARSE_RE.search(content)
         if not m:
             return None
-        attitude, raw_delta = m.group(1), int(m.group(2))
+        attitude, raw_delta = m.group(1), float(m.group(2))
         if attitude in ("友好", "善意"):
             delta = abs(raw_delta)
         elif attitude in ("敌意", "恶意"):
