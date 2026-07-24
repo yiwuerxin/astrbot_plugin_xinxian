@@ -92,6 +92,14 @@
       "text_wake_ranking": { "type": "string", "default": "好感排行,好感榜单,好感排名", "description": "文字唤醒「本群好感排行」的短语，逗号分隔" }
     }
   },
+  "render": {
+    "type": "object",
+    "description": "排行图片渲染（PIL）",
+    "items": {
+      "font_path": { "type": "string", "default": "", "description": "CJK 字体路径，留空自动探测；找不到则退回默认字体（中文可能变方框，数字不受影响）" },
+      "rows_per_col": { "type": "int", "default": 12, "description": "每列行数上限；超过则向右新增列（左上最高、向下递减、再第二列）" }
+    }
+  },
   "decay": {
     "type": "object",
     "description": "时间衰减：久不互动，好感度向基线慢慢靠拢（像真人久不联系就淡了）",
