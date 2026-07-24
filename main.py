@@ -142,7 +142,6 @@ class XinxianPlugin(Star):
         cmd_cfg = config.get("command") or {}
         self._ranking_limit = int(cmd_cfg.get("ranking_limit", 10))
         self._text_wake_enabled = bool(cmd_cfg.get("text_wake_enabled", False))
-        self._text_wake_query = _split_phrases(cmd_cfg.get("text_wake_query", "好感度,查好感,我的好感"))
         self._text_wake_ranking = _split_phrases(cmd_cfg.get("text_wake_ranking", "好感排行,好感榜单,好感排名"))
         render_cfg = config.get("render") or {}
         self._render_font = (render_cfg.get("font_path") or "").strip()
@@ -172,7 +171,7 @@ class XinxianPlugin(Star):
         if self._text_wake_enabled and not getattr(event, "_xinxian_cmd_done", False):
             path = await cmd.try_text_wake(
                 self._favor, event,
-                self._text_wake_query, self._text_wake_ranking,
+                self._text_wake_ranking,
                 self._render_font, self._render_rows,
             )
             if path is not None:
@@ -184,14 +183,6 @@ class XinxianPlugin(Star):
         await on_llm_request(self._deps, event, req)
 
     # ---------------- 指令 ----------------
-
-    @filter.command("好感度")
-    async def _cmd_query(self, event: AstrMessageEvent):
-        """查询自己对小千的好感度（排行图，自己高亮）"""
-        event._xinxian_cmd_done = True  # 标记已由 / 指令处理，避免文字唤醒重复回复
-        yield event.image_result(
-            await cmd.build_rank_image(self._favor, event, self._render_font, self._render_rows)
-        )
 
     @filter.command("好感排行")
     async def _cmd_rank(self, event: AstrMessageEvent):
