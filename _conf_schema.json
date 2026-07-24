@@ -86,7 +86,10 @@
     "type": "object",
     "description": "指令相关",
     "items": {
-      "ranking_limit": { "type": "int", "default": 10, "description": "好感排行默认条数" }
+      "ranking_limit": { "type": "int", "default": 10, "description": "好感排行默认条数" },
+      "text_wake_enabled": { "type": "bool", "default": false, "description": "群聊直接发文字（不用 /）唤醒查询指令；仅对查询类开放，管理员指令仍需 /" },
+      "text_wake_query": { "type": "string", "default": "好感度,查好感,我的好感", "description": "文字唤醒「查自己好感度」的短语，逗号分隔（精确匹配整条消息）" },
+      "text_wake_ranking": { "type": "string", "default": "好感排行,好感榜单,好感排名", "description": "文字唤醒「本群好感排行」的短语，逗号分隔" }
     }
   },
   "decay": {

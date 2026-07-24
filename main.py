@@ -39,11 +39,16 @@ def _read_resource(rel: str) -> str:
     return (_PLUGIN_DIR / rel).read_text(encoding="utf-8").strip()
 
 
+def _split_phrases(raw: str) -> set[str]:
+    """逗号分隔的短语（兼容中文逗号）→ 去空去重的集合。"""
+    return {x.strip() for x in str(raw or "").replace("，", ",").split(",") if x.strip()}
+
+
 @register(
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.11.0",
+    "1.12.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -134,7 +139,11 @@ class XinxianPlugin(Star):
             memory_count=int(inject_cfg.get("memory_count", 3)),
             memory_days=int(inject_cfg.get("memory_days", 7)),
         )
-        self._ranking_limit = int((config.get("command") or {}).get("ranking_limit", 10))
+        cmd_cfg = config.get("command") or {}
+        self._ranking_limit = int(cmd_cfg.get("ranking_limit", 10))
+        self._text_wake_enabled = bool(cmd_cfg.get("text_wake_enabled", False))
+        self._text_wake_query = _split_phrases(cmd_cfg.get("text_wake_query", "好感度,查好感,我的好感"))
+        self._text_wake_ranking = _split_phrases(cmd_cfg.get("text_wake_ranking", "好感排行,好感榜单,好感排名"))
 
         # 跨插件 API：context.get_registered_star("astrbot_plugin_xinxian").star_cls.api
         self.api = XinxianFacade(self._favor)
@@ -156,6 +165,14 @@ class XinxianPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def _on_group_msg(self, event: AstrMessageEvent):
+        # 文字唤醒：群里直接发文字（不用 /）触发查询指令；与 / 指令一致，之后照常跑规则/评估引擎
+        if self._text_wake_enabled and not getattr(event, "_xinxian_cmd_done", False):
+            reply = await cmd.try_text_wake(
+                self._favor, event,
+                self._text_wake_query, self._text_wake_ranking, self._ranking_limit,
+            )
+            if reply is not None:
+                yield event.plain_result(reply)
         await on_group_message(self._deps, event)
 
     @filter.on_llm_request()
@@ -167,11 +184,13 @@ class XinxianPlugin(Star):
     @filter.command("好感度")
     async def _cmd_query(self, event: AstrMessageEvent):
         """查询自己对小千的好感度"""
+        event._xinxian_cmd_done = True  # 标记已由 / 指令处理，避免文字唤醒重复回复
         yield event.plain_result(await cmd.handle_query(self._favor, event))
 
     @filter.command("好感排行")
     async def _cmd_rank(self, event: AstrMessageEvent):
         """查看本群对小千的好感度排行"""
+        event._xinxian_cmd_done = True
         yield event.plain_result(
             await cmd.handle_ranking(self._favor, event, self._ranking_limit)
         )
