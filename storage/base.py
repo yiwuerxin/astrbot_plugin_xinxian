@@ -54,6 +54,10 @@ class StorageBackend(ABC):
         """群内好感度排行（降序）。"""
 
     @abstractmethod
+    async def list_favor(self, group_id: str | None = None, limit: int = 500) -> list[FavorRecord]:
+        """列出当前好感度记录（含 relationship）；group_id 为空则全部群，按 updated_at 倒序。"""
+
+    @abstractmethod
     async def daily_gain(self, group_id: str, user_id: str, day: str) -> float:
         """当日净增量（带符号，精度一位小数）。day 格式 YYYY-MM-DD。"""
 

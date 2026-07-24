@@ -88,3 +88,21 @@
   color: #909399;
   padding: 28px 0;
 }
+.xx-tabs {
+  display: flex;
+  gap: 4px;
+}
+.xx-tab {
+  padding: 6px 14px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background: #fff;
+  color: #606266;
+  font-size: 13px;
+  cursor: pointer;
+}
+.xx-tab.active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
