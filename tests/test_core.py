@@ -358,6 +358,21 @@ class TestFavorService:
         # 每群独立
         assert asyncio.run(svc.standings("g2")) == []
 
+    def test_logs_user_fuzzy(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "123456", 1, source="api"))
+        asyncio.run(svc.change("g1", "654321", 1, source="api"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "123"))  # 模糊匹配
+        assert [r["user_id"] for r in rows] == ["123456"]
+
+    def test_distinct_groups(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", 50))
+        asyncio.run(svc.set_favor("g2", "u1", 50))
+        asyncio.run(svc.set_favor("g1", "u2", 50))
+        gmap = {g["group_id"]: g["count"] for g in asyncio.run(svc._storage.distinct_groups())}
+        assert gmap == {"g1": 2, "g2": 1}
+
 
 # ---------------- 一位小数工具 ----------------
 
