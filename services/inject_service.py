@@ -11,6 +11,7 @@ import time
 from ..core.decimal import fmt
 from ..core.levels import LevelTable
 from ..core.models import FavorRecord
+from ..core.relationship import RelationshipTable
 
 
 class InjectService:
@@ -22,11 +23,13 @@ class InjectService:
         template: str,
         master_title: str = "主人",
         max_favor: float = 100,
+        relationships: RelationshipTable | None = None,
     ) -> None:
         self._levels = levels
         self._template = template
         self._master_title = master_title
         self._max_favor = max_favor
+        self._relationships = relationships
 
     def build_block(
         self,
@@ -49,6 +52,7 @@ class InjectService:
             else ""
         )
         events_block = self._format_events(recent_events or [])
+        relationship_block = self._format_relationship(record.relationship)
         return self._template.format(
             nickname=nickname or "对方",
             user_id=record.user_id,
@@ -58,7 +62,18 @@ class InjectService:
             level_name=lv.name,
             level_guidance=lv.guidance,
             recent_events=events_block,
+            relationship=relationship_block,
         )
+
+    def _format_relationship(self, value: str) -> str:
+        """把关系类型渲染为「你们的关系」段；未启用/未设置返回空串（模板里自然消失）。"""
+        if self._relationships is None:
+            return ""
+        resolved = self._relationships.resolve(value)
+        if not resolved:
+            return ""
+        label, guidance = resolved
+        return f"\n- 你们的关系：{label}（{guidance}）"
 
     @staticmethod
     def _format_events(events: list[dict]) -> str:

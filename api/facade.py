@@ -67,3 +67,13 @@ class XinxianFacade:
     def is_master(self, user_id: str) -> bool:
         """判断是否为主人（按 QQ 号）。"""
         return self._favor.is_master(user_id)
+
+    async def get_relationship(self, group_id: str, user_id: str) -> str:
+        """查询关系类型标签（原始 key，未设置返回空串）。"""
+        rec = await self._favor.get(group_id, user_id)
+        return rec.relationship or ""
+
+    async def set_relationship(self, group_id: str, user_id: str, key: str) -> str:
+        """设定关系类型标签，返回展示名。不影响好感度数值。"""
+        await self._favor.set_relationship(group_id, user_id, key)
+        return self._favor.relationship_label(key)

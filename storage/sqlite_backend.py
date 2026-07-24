@@ -44,13 +44,14 @@ class SQLiteBackend(StorageBackend):
     async def get(self, group_id: str, user_id: str) -> FavorRecord | None:
         with self._lock:
             row = self._c().execute(
-                "SELECT favor, updated_at FROM favor WHERE group_id=? AND user_id=?",
+                "SELECT favor, updated_at, relationship FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
         if row is None:
             return None
         return FavorRecord(
-            group_id=group_id, user_id=user_id, favor=float(row[0]), updated_at=row[1]
+            group_id=group_id, user_id=user_id,
+            favor=float(row[0]), updated_at=row[1], relationship=row[2] or "",
         )
 
     async def apply_delta(
@@ -104,6 +105,17 @@ class SQLiteBackend(StorageBackend):
             )
             self._c().commit()
         return FavorRecord(group_id, user_id, value, now)
+
+    async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
+        now = time.time()
+        with self._lock:
+            self._c().execute(
+                "INSERT INTO favor(group_id, user_id, updated_at, relationship) VALUES(?,?,?,?) "
+                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
+                "relationship=excluded.relationship",
+                (group_id, user_id, now, relationship or ""),
+            )
+            self._c().commit()
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         with self._lock:
