@@ -86,5 +86,15 @@
     "items": {
       "ranking_limit": { "type": "int", "default": 10, "description": "好感排行默认条数" }
     }
+  },
+  "decay": {
+    "type": "object",
+    "description": "时间衰减：久不互动，好感度向基线慢慢靠拢（像真人久不联系就淡了）",
+    "items": {
+      "enabled": { "type": "bool", "default": false, "description": "总开关" },
+      "per_day": { "type": "float", "default": 1.0, "description": "超过宽限期后，每天向基线靠拢的量（支持一位小数）" },
+      "grace_days": { "type": "int", "default": 3, "description": "宽限天数；idle 不超过此值不衰减" },
+      "baseline": { "type": "float", "default": 0, "description": "衰减基线（好感向此值靠拢，不会越过）" }
+    }
   }
 }

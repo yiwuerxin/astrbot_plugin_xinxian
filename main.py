@@ -42,7 +42,7 @@ def _read_resource(rel: str) -> str:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.7.0",
+    "1.8.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -63,6 +63,7 @@ class XinxianPlugin(Star):
         master_ids = parse_master_ids(config.get("master_ids", ""))
 
         self._storage = SQLiteBackend(data_dir / "xinxian.db")
+        decay_cfg = config.get("decay") or {}
         self._favor = FavorService(
             self._storage,
             levels,
@@ -72,6 +73,10 @@ class XinxianPlugin(Star):
             daily_cap_up=float(config.get("daily_cap_up", 15)),
             daily_cap_down=float(config.get("daily_cap_down", 15)),
             master_ids=master_ids,
+            decay_enabled=bool(decay_cfg.get("enabled", False)),
+            decay_per_day=float(decay_cfg.get("per_day", 1.0)),
+            decay_grace_days=float(decay_cfg.get("grace_days", 3)),
+            decay_baseline=float(decay_cfg.get("baseline", 0.0)),
         )
 
         judge_cfg = config.get("judge") or {}

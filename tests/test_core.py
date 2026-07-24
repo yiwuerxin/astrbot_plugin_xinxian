@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from astrbot_plugin_xinxian.core.decay import effective_favor  # noqa: E402
 from astrbot_plugin_xinxian.core.decimal import fmt, round1  # noqa: E402
 from astrbot_plugin_xinxian.core.events import EventType, RuleMatcher  # noqa: E402
 from astrbot_plugin_xinxian.core.identity import is_master, parse_master_ids  # noqa: E402
@@ -292,6 +293,38 @@ class TestDecimal:
         assert fmt(50.0) == "50"
         assert fmt(50.5) == "50.5"
         assert fmt(-3.0) == "-3"
+
+
+# ---------------- 时间衰减 ----------------
+
+
+class TestDecay:
+    def test_no_decay_when_disabled(self):
+        assert effective_favor(80, 0, 1000, per_day=0, grace_days=3, baseline=0) == 80
+
+    def test_no_decay_never_interacted(self):
+        # updated_at=0 → 即便 idle 巨大也不衰减
+        assert effective_favor(80, 0, 1_000_000_000, per_day=1, grace_days=3, baseline=0) == 80
+
+    def test_within_grace_no_decay(self):
+        now = 86400 * 10
+        updated = now - 86400 * 2  # 2 天前，宽限 3 天内
+        assert effective_favor(80, updated, now, per_day=1, grace_days=3, baseline=0) == 80
+
+    def test_decays_beyond_grace(self):
+        now = 86400 * 10
+        updated = now - 86400 * 5  # 5 天前，超宽限 3 → 衰减 2 天
+        assert effective_favor(80, updated, now, per_day=1, grace_days=3, baseline=0) == 78
+
+    def test_does_not_cross_baseline(self):
+        now = 86400 * 100
+        updated = 86400  # 很久以前
+        assert effective_favor(80, updated, now, per_day=100, grace_days=0, baseline=0) == 0
+
+    def test_negative_rises_to_baseline(self):
+        now = 86400 * 100
+        updated = 86400
+        assert effective_favor(-50, updated, now, per_day=100, grace_days=0, baseline=0) == 0
 
 
 # ---------------- schema 迁移 ----------------
