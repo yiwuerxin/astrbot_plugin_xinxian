@@ -18,6 +18,7 @@ from astrbot_plugin_xinxian.core.decimal import fmt, round1  # noqa: E402
 from astrbot_plugin_xinxian.core.events import EventType, RuleMatcher  # noqa: E402
 from astrbot_plugin_xinxian.core.identity import is_master, parse_master_ids  # noqa: E402
 from astrbot_plugin_xinxian.core.levels import LevelTable  # noqa: E402
+from astrbot_plugin_xinxian.core.relationship import RelationshipTable  # noqa: E402
 from astrbot_plugin_xinxian.core.models import FavorRecord  # noqa: E402
 from astrbot_plugin_xinxian.services.favor_service import FavorService  # noqa: E402
 from astrbot_plugin_xinxian.storage.migrations import SCHEMA_VERSION, migrate  # noqa: E402
@@ -81,6 +82,34 @@ class TestIdentity:
         assert not is_master("999", ["123456789"])
 
 
+# ---------------- 关系类型 ----------------
+
+
+class TestRelationship:
+    def test_resolve_known_key(self):
+        rt = RelationshipTable.from_config(None)
+        label, guidance = rt.resolve("lover")
+        assert label == "恋人"
+        assert "恋人" in guidance
+
+    def test_resolve_empty(self):
+        rt = RelationshipTable.from_config(None)
+        assert rt.resolve("") is None
+        assert rt.resolve("   ") is None
+
+    def test_resolve_custom_label(self):
+        rt = RelationshipTable.from_config(None)
+        label, guidance = rt.resolve("青梅竹马")
+        assert label == "青梅竹马"
+        assert "青梅竹马" in guidance
+
+    def test_label_of_and_keys(self):
+        rt = RelationshipTable.from_config(None)
+        assert rt.label_of("lover") == "恋人"
+        assert rt.label_of("xyz") == "xyz"
+        assert "lover" in rt.keys()
+
+
 # ---------------- 注入（近期印象）----------------
 
 
@@ -109,6 +138,19 @@ class TestInject:
         # 无事件时不出现「近期印象」
         block0 = inj.build_block(rec, is_master=False, recent_events=[])
         assert "近期印象" not in block0
+
+    def test_block_with_relationship(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        inj = InjectService(
+            LevelTable.from_config(None),
+            "[好感度档案]\n- 好感度：{favor}/{max_favor}（{level_name}）\n- 态度指引：{level_guidance}{recent_events}{relationship}\n",
+            relationships=RelationshipTable.from_config(None),
+        )
+        rec = FavorRecord("g", "u", 80, 0.0, "lover")
+        assert "你们的关系：恋人" in inj.build_block(rec, is_master=False)
+        # 未设置关系时不出现
+        assert "你们的关系" not in inj.build_block(FavorRecord("g", "u", 80), is_master=False)
 
 
 # ---------------- 好感度增减（内存级 SQLite） ----------------
@@ -278,6 +320,16 @@ class TestFavorService:
         assert asyncio.run(svc.recent_events("g1", "u1", count=0)) == []  # 关闭
         assert asyncio.run(svc.recent_events("g2", "u1", count=3, days=7)) == []  # 每群独立
 
+    def test_set_get_relationship(self, tmp_path):
+        svc = _make_service(tmp_path, relationships=RelationshipTable.from_config(None))
+        asyncio.run(svc.set_relationship("g1", "u1", "lover"))
+        rec = asyncio.run(svc.get("g1", "u1"))
+        assert rec.relationship == "lover"
+        assert svc.relationship_label("lover") == "恋人"
+        # 清除
+        asyncio.run(svc.set_relationship("g1", "u1", ""))
+        assert asyncio.run(svc.get("g1", "u1")).relationship == ""
+
 
 # ---------------- 一位小数工具 ----------------
 
@@ -372,9 +424,9 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert fav == 50.0 and isinstance(fav, float)
         assert gain == 3.0 and isinstance(gain, float)
 
-        # 可继续写入小数与负值
-        conn.execute("INSERT INTO favor VALUES('g','u2',50.5,2.0)")
-        conn.execute("INSERT INTO favor VALUES('g','u3',-30.0,3.0)")
+        # 可继续写入小数与负值（v4 后 favor 多了 relationship 列，需显式指定列）
+        conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u2',50.5,2.0)")
+        conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u3',-30.0,3.0)")
         conn.commit()
         rows = conn.execute(
             "SELECT user_id,favor FROM favor WHERE group_id=? ORDER BY favor DESC", ("g",)
@@ -393,5 +445,15 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         # v3：favor_log 流水表
         cols = [c[1] for c in conn.execute("PRAGMA table_info(favor_log)").fetchall()]
         assert "delta" in cols and "reason" in cols and "source" in cols
+        conn.close()
+
+    def test_v4_relationship_column(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        migrate(conn)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(favor)").fetchall()]
+        assert "relationship" in cols
         conn.close()
 

@@ -14,6 +14,7 @@ from ..core.decimal import round1
 from ..core.events import EventRule
 from ..core.identity import is_master as _is_master
 from ..core.levels import LevelTable
+from ..core.relationship import RelationshipTable
 from ..core.models import FavorChange, FavorRecord, LevelDef
 from ..storage.base import StorageBackend
 
@@ -36,6 +37,7 @@ class FavorService:
         decay_per_day: float = 1.0,
         decay_grace_days: float = 3,
         decay_baseline: float = 0.0,
+        relationships: RelationshipTable | None = None,
     ) -> None:
         self._storage = storage
         self._levels = levels
@@ -50,6 +52,7 @@ class FavorService:
             if decay_enabled
             else None
         )
+        self._relationships = relationships
 
     # ---------- 查询 ----------
 
@@ -87,6 +90,19 @@ class FavorService:
 
     def is_master(self, user_id: str) -> bool:
         return _is_master(user_id, self._master_ids)
+
+    def relationship_label(self, value: str) -> str:
+        """关系值 → 展示名（无关系表或未设置返回原值/空）。"""
+        if self._relationships is None:
+            return value or ""
+        return self._relationships.label_of(value)
+
+    async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
+        """设定关系类型标签；无记录时先按默认好感建一条再设（不影响好感数值）。"""
+        rec = await self._storage.get(group_id, user_id)
+        if rec is None:
+            await self._storage.set_value(group_id, user_id, self.default_favor)
+        await self._storage.set_relationship(group_id, user_id, (relationship or "").strip())
 
     async def is_first_today(self, group_id: str, user_id: str) -> bool:
         """该成员当日是否还没有互动记录（用于 DAILY_FIRST 事件）。"""

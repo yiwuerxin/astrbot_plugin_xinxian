@@ -46,6 +46,10 @@ class StorageBackend(ABC):
         """直接设定好感度数值（精度一位小数）。"""
 
     @abstractmethod
+    async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
+        """设定关系类型标签（不影响好感度数值）。空串表示清除。"""
+
+    @abstractmethod
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         """群内好感度排行（降序）。"""
 
