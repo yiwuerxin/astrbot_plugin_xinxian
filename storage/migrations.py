@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # 版本号 -> 该版本需要执行的 DDL/DML 语句列表
 MIGRATIONS: dict[int, list[str]] = {
@@ -66,6 +66,22 @@ MIGRATIONS: dict[int, list[str]] = {
         "SELECT group_id, user_id, day, gain FROM daily_gain",
         "DROP TABLE daily_gain",
         "ALTER TABLE daily_gain_new RENAME TO daily_gain",
+    ],
+    # v3：好感度变动流水日志（供 WebUI dashboard 展示增减大小与原因）
+    3: [
+        """CREATE TABLE IF NOT EXISTS favor_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id     TEXT NOT NULL,
+            user_id      TEXT NOT NULL,
+            delta        REAL NOT NULL,
+            favor_before REAL NOT NULL,
+            favor_after  REAL NOT NULL,
+            reason       TEXT,
+            source       TEXT,
+            ts           REAL NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_favor_log_group_ts ON favor_log(group_id, ts DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_favor_log_user ON favor_log(group_id, user_id, ts DESC)",
     ],
 }
 
