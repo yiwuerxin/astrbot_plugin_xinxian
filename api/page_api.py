@@ -30,6 +30,7 @@ class PageApi:
             return
         reg(f"/{PLUGIN_NAME}/logs", self.handle_logs, ["GET"], "心弦 好感度变动记录")
         reg(f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表")
+        reg(f"/{PLUGIN_NAME}/users", self.handle_users, ["GET"], "心弦 当前好感总览")
 
     # ---------------- handlers ----------------
 
@@ -54,5 +55,15 @@ class PageApi:
                 seen[r["group_id"]] = seen.get(r["group_id"], 0) + 1
             groups = [{"group_id": g, "count": c} for g, c in sorted(seen.items())]
             return jsonify({"success": True, "groups": groups})
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"success": False, "error": str(e)})
+
+    async def handle_users(self):
+        """当前总览：?group_id=&limit=，按有效好感降序。"""
+        try:
+            group_id = (request.args.get("group_id") or "").strip() or None
+            limit = max(1, min(int(request.args.get("limit", 500)), 2000))
+            users = await self._favor.standings(group_id, limit)
+            return jsonify({"success": True, "users": users, "count": len(users)})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})

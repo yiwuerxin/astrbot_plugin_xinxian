@@ -344,6 +344,20 @@ class TestFavorService:
         asyncio.run(svc.set_relationship("g1", "u1", ""))
         assert asyncio.run(svc.get("g1", "u1")).relationship == ""
 
+    def test_standings(self, tmp_path):
+        svc = _make_service(tmp_path, relationships=RelationshipTable.from_config(None))
+        asyncio.run(svc.set_favor("g1", "u1", 80))
+        asyncio.run(svc.set_favor("g1", "u2", 30))
+        asyncio.run(svc.set_relationship("g1", "u1", "lover"))
+        rows = asyncio.run(svc.standings("g1"))
+        assert [r["user_id"] for r in rows] == ["u1", "u2"]  # 按有效好感降序
+        assert rows[0]["favor"] == 80.0 and rows[0]["level"] == "挚友"
+        assert rows[0]["relationship"] == "恋人"
+        assert rows[1]["relationship"] == ""
+        assert rows[0]["decayed"] is False  # 未开衰减
+        # 每群独立
+        assert asyncio.run(svc.standings("g2")) == []
+
 
 # ---------------- 一位小数工具 ----------------
 
