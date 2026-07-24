@@ -24,12 +24,14 @@ class InjectService:
         master_title: str = "主人",
         max_favor: float = 100,
         relationships: RelationshipTable | None = None,
+        persona_anchor: str = "",
     ) -> None:
         self._levels = levels
         self._template = template
         self._master_title = master_title
         self._max_favor = max_favor
         self._relationships = relationships
+        self._persona_anchor = persona_anchor
 
     def build_block(
         self,
@@ -53,7 +55,7 @@ class InjectService:
         )
         events_block = self._format_events(recent_events or [])
         relationship_block = self._format_relationship(record.relationship)
-        return self._template.format(
+        block = self._template.format(
             nickname=nickname or "对方",
             user_id=record.user_id,
             master_line=master_line,
@@ -64,6 +66,9 @@ class InjectService:
             recent_events=events_block,
             relationship=relationship_block,
         )
+        if self._persona_anchor:
+            block += "\n" + self._persona_anchor
+        return block
 
     def _format_relationship(self, value: str) -> str:
         """把关系类型渲染为「你们的关系」段；未启用/未设置返回空串（模板里自然消失）。"""
