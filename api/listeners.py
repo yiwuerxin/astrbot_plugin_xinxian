@@ -61,14 +61,9 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
     text = event.message_str or ""
     has_at_bot, is_reply_bot = _chain_flags(event)
 
-    # 规则引擎
+    # 规则引擎（仅当日首次互动）
     is_first = await deps.favor.is_first_today(group_id, user_id)
-    rules = deps.matcher.match(
-        text,
-        has_at_bot=has_at_bot,
-        is_reply_bot=is_reply_bot,
-        is_first_today=is_first,
-    )
+    rules = deps.matcher.match(is_first_today=is_first)
     if rules:
         change = await deps.favor.apply_rules(group_id, user_id, rules)
         if change.delta:
