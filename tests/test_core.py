@@ -13,11 +13,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from astrbot_plugin_xinxian.core.decimal import fmt, round1  # noqa: E402
 from astrbot_plugin_xinxian.core.events import EventType, RuleMatcher  # noqa: E402
 from astrbot_plugin_xinxian.core.identity import is_master, parse_master_ids  # noqa: E402
 from astrbot_plugin_xinxian.core.levels import LevelTable  # noqa: E402
 from astrbot_plugin_xinxian.core.models import FavorRecord  # noqa: E402
 from astrbot_plugin_xinxian.services.favor_service import FavorService  # noqa: E402
+from astrbot_plugin_xinxian.storage.migrations import SCHEMA_VERSION, migrate  # noqa: E402
 from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend  # noqa: E402
 
 
@@ -28,6 +30,8 @@ class TestLevelTable:
         self.table = LevelTable.from_config(None)
 
     def test_boundaries(self):
+        assert self.table.level_of(-100).name == "厌恶"
+        assert self.table.level_of(-1).name == "厌恶"
         assert self.table.level_of(0).name == "陌生"
         assert self.table.level_of(9).name == "陌生"
         assert self.table.level_of(10).name == "认识"
@@ -94,7 +98,10 @@ class TestIdentity:
 def _make_service(tmp_path, **kw) -> FavorService:
     storage = SQLiteBackend(tmp_path / "test.db")
     asyncio.run(storage.init())
-    defaults = dict(max_favor=100, default_favor=0, daily_cap_up=15, daily_cap_down=15)
+    defaults = dict(
+        max_favor=100, min_favor=-100, default_favor=0,
+        daily_cap_up=15, daily_cap_down=15,
+    )
     defaults.update(kw)
     return FavorService(storage, LevelTable.from_config(None), **defaults)
 
@@ -107,11 +114,63 @@ class TestFavorService:
         lv = svc.level_of(ch.favor_after)
         assert lv.name == "挚爱"
 
-    def test_floor_zero(self, tmp_path):
+    def test_negative_floor(self, tmp_path):
+        # 默认 min_favor=-100；从 50 下降 200，应被下限截到 -100
         svc = _make_service(tmp_path, daily_cap_down=200)
         asyncio.run(svc.change("g1", "u1", 50))
-        ch = asyncio.run(svc.change("g1", "u1", -80))
-        assert ch.favor_after == 0
+        ch = asyncio.run(svc.change("g1", "u1", -200))
+        assert ch.favor_after == -100
+        assert ch.clamped
+
+    def test_set_favor_decimal(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", 50.5))
+        assert asyncio.run(svc.get("g1", "u1")).favor == 50.5
+
+    def test_set_favor_negative_in_range(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", -30))
+        assert asyncio.run(svc.get("g1", "u1")).favor == -30.0
+
+    def test_set_favor_clamp_min(self, tmp_path):
+        svc = _make_service(tmp_path)
+        rec = asyncio.run(svc.set_favor("g1", "u1", -999))
+        assert rec.favor == -100  # 下限
+
+    def test_decimal_accumulation(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 0.5))
+        ch = asyncio.run(svc.change("g1", "u1", 0.3))
+        assert ch.favor_after == 0.8  # 一位小数精确累加
+
+    def test_daily_cap_decimal(self, tmp_path):
+        # cap_up=1.5、每次 +0.5：前 3 次正好用满 1.5，第 4 次被挡
+        svc = _make_service(tmp_path, daily_cap_up=1.5)
+        deltas = [asyncio.run(svc.change("g1", "u1", 0.5)).delta for _ in range(4)]
+        assert deltas == [0.5, 0.5, 0.5, 0.0]
+
+    def test_clamped_not_tripped_by_float_noise(self, tmp_path):
+        # cap_up=0.3：先 +0.1（used=0.1），再 +0.2。0.3-0.1 在 IEEE-754 下为
+        # 0.1999…，未收敛会把 clamped 标志误判为 True（delta 仍正确）。
+        svc = _make_service(tmp_path, daily_cap_up=0.3)
+        asyncio.run(svc.change("g1", "u1", 0.1))
+        ch = asyncio.run(svc.change("g1", "u1", 0.2))
+        assert ch.delta == 0.2       # 0.2 在 0.3 额度内，全额生效
+        assert ch.clamped is False   # 不应被浮点噪声误判为截断
+
+    def test_yanwu_level_mapping(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", -1))
+        assert svc.level_of(asyncio.run(svc.get("g1", "u1")).favor).name == "厌恶"
+        asyncio.run(svc.set_favor("g1", "u2", 0))
+        assert svc.level_of(asyncio.run(svc.get("g1", "u2")).favor).name == "陌生"
+
+    def test_ranking_with_negative(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", -50))
+        asyncio.run(svc.set_favor("g1", "u2", 30))
+        rows = asyncio.run(svc.ranking("g1", 10))
+        assert [r.user_id for r in rows] == ["u2", "u1"]  # 30 > -50
 
     def test_daily_cap_up(self, tmp_path):
         svc = _make_service(tmp_path, daily_cap_up=10)
@@ -176,3 +235,86 @@ class TestFavorService:
         rules = matcher.match("早", is_first_today=True)
         asyncio.run(svc.apply_rules("g1", "u1", rules))
         assert asyncio.run(svc.is_first_today("g1", "u1")) is False
+
+
+# ---------------- 一位小数工具 ----------------
+
+class TestDecimal:
+    def test_round1(self):
+        assert round1(0.1 + 0.2) == 0.3  # 吸收浮点漂移
+        assert round1(50.0) == 50.0
+        assert round1(-3.0) == -3.0
+        assert round1(3.14159) == 3.1  # 收敛到 1 位
+
+    def test_fmt(self):
+        assert fmt(50) == "50"
+        assert fmt(50.0) == "50"
+        assert fmt(50.5) == "50.5"
+        assert fmt(-3.0) == "-3"
+
+
+# ---------------- schema 迁移 ----------------
+
+class TestMigration:
+    def _build_v1_db(self, path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(path))
+        conn.executescript(
+            """
+CREATE TABLE favor(group_id TEXT,user_id TEXT,favor INTEGER NOT NULL DEFAULT 0,
+                   updated_at REAL NOT NULL,PRIMARY KEY(group_id,user_id));
+CREATE INDEX idx_favor_group ON favor(group_id,favor DESC);
+CREATE TABLE daily_gain(group_id TEXT,user_id TEXT,day TEXT,
+                        gain INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(group_id,user_id,day));
+CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
+                      PRIMARY KEY(group_id,user_id,key));
+"""
+        )
+        conn.execute("INSERT INTO favor VALUES('g','u',50,1.0)")
+        conn.execute("INSERT INTO daily_gain VALUES('g','u','2026-07-24',3)")
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+        return conn
+
+    def test_v1_to_v2_round_trip(self, tmp_path):
+        import sqlite3
+
+        conn = self._build_v1_db(tmp_path / "old.db")
+        migrate(conn)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+
+        # 列亲和升级为 REAL
+        aff = conn.execute("PRAGMA table_info(favor)").fetchall()[2][2]
+        assert aff == "REAL"
+
+        # 旧数据无损、类型变 float
+        fav = conn.execute(
+            "SELECT favor FROM favor WHERE group_id='g' AND user_id='u'"
+        ).fetchone()[0]
+        gain = conn.execute(
+            "SELECT gain FROM daily_gain WHERE group_id='g' AND user_id='u'"
+        ).fetchone()[0]
+        assert fav == 50.0 and isinstance(fav, float)
+        assert gain == 3.0 and isinstance(gain, float)
+
+        # 可继续写入小数与负值
+        conn.execute("INSERT INTO favor VALUES('g','u2',50.5,2.0)")
+        conn.execute("INSERT INTO favor VALUES('g','u3',-30.0,3.0)")
+        conn.commit()
+        rows = conn.execute(
+            "SELECT user_id,favor FROM favor WHERE group_id=? ORDER BY favor DESC", ("g",)
+        ).fetchall()
+        assert [r[0] for r in rows] == ["u2", "u", "u3"]
+        conn.close()
+
+    def test_fresh_db_is_v2(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        migrate(conn)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        aff = conn.execute("PRAGMA table_info(daily_gain)").fetchall()[3][2]
+        assert aff == "REAL"
+        conn.close()
+

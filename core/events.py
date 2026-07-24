@@ -33,7 +33,7 @@ class EventRule:
     """
 
     event: EventType
-    delta: int
+    delta: float
     cooldown_sec: int = 0
     keywords: tuple[str, ...] = ()
     enabled: bool = True
@@ -64,7 +64,7 @@ class RuleMatcher:
         rules = [
             EventRule(
                 EventType.PRAISED,
-                delta=int(_rule_cfg(raw, "praised", "delta", 3)),
+                delta=float(_rule_cfg(raw, "praised", "delta", 3)),
                 cooldown_sec=int(_rule_cfg(raw, "praised", "cooldown_sec", 300)),
                 keywords=_split_keywords(
                     _rule_cfg(raw, "praised", "keywords", ""),
@@ -74,7 +74,7 @@ class RuleMatcher:
             ),
             EventRule(
                 EventType.INSULTED,
-                delta=int(_rule_cfg(raw, "insulted", "delta", -5)),
+                delta=float(_rule_cfg(raw, "insulted", "delta", -5)),
                 cooldown_sec=int(_rule_cfg(raw, "insulted", "cooldown_sec", 300)),
                 keywords=_split_keywords(
                     _rule_cfg(raw, "insulted", "keywords", ""),
@@ -84,20 +84,20 @@ class RuleMatcher:
             ),
             EventRule(
                 EventType.AT_MENTION,
-                delta=int(_rule_cfg(raw, "at_mention", "delta", 1)),
+                delta=float(_rule_cfg(raw, "at_mention", "delta", 1)),
                 cooldown_sec=int(_rule_cfg(raw, "at_mention", "cooldown_sec", 600)),
                 enabled=bool(_rule_cfg(raw, "at_mention", "enabled", True)),
             ),
             EventRule(
                 EventType.REPLY_BOT,
-                delta=int(_rule_cfg(raw, "reply_bot", "delta", 1)),
+                delta=float(_rule_cfg(raw, "reply_bot", "delta", 1)),
                 cooldown_sec=int(_rule_cfg(raw, "reply_bot", "cooldown_sec", 600)),
                 enabled=bool(_rule_cfg(raw, "reply_bot", "enabled", True)),
             ),
             # DAILY_FIRST 不走服务层秒级冷却，由"是否当日首次"判定天然去重
             EventRule(
                 EventType.DAILY_FIRST,
-                delta=int(_rule_cfg(raw, "daily_first", "delta", 2)),
+                delta=float(_rule_cfg(raw, "daily_first", "delta", 2)),
                 cooldown_sec=0,
                 enabled=bool(_rule_cfg(raw, "daily_first", "enabled", True)),
             ),
