@@ -7,6 +7,7 @@ from .decimal import fmt, round1
 from .decay import effective_favor
 from .models import FavorChange, FavorRecord, LevelDef
 from .levels import DEFAULT_LEVELS, LevelTable
+from .relationship import DEFAULT_TYPES, RelationshipTable, RelationshipType
 from .events import EventRule, EventType, RuleMatcher
 from .identity import is_master, parse_master_ids
 
@@ -19,6 +20,9 @@ __all__ = [
     "LevelDef",
     "DEFAULT_LEVELS",
     "LevelTable",
+    "DEFAULT_TYPES",
+    "RelationshipTable",
+    "RelationshipType",
     "EventRule",
     "EventType",
     "RuleMatcher",

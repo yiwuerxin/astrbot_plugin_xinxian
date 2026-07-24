@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # 版本号 -> 该版本需要执行的 DDL/DML 语句列表
 MIGRATIONS: dict[int, list[str]] = {
@@ -82,6 +82,10 @@ MIGRATIONS: dict[int, list[str]] = {
         )""",
         "CREATE INDEX IF NOT EXISTS idx_favor_log_group_ts ON favor_log(group_id, ts DESC)",
         "CREATE INDEX IF NOT EXISTS idx_favor_log_user ON favor_log(group_id, user_id, ts DESC)",
+    ],
+    # v4：favor 表加 relationship 列（关系类型标签，与好感数值正交）
+    4: [
+        "ALTER TABLE favor ADD COLUMN relationship TEXT NOT NULL DEFAULT ''",
     ],
 }
 

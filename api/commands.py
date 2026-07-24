@@ -45,3 +45,19 @@ async def handle_reset(svc: FavorService, event: AstrMessageEvent, target: str =
         return f"已重置 QQ {target} 在本群的好感度。"
     await svc.reset(group_id, None)
     return "已重置本群全部好感度数据。"
+
+
+async def handle_set_relationship(
+    svc: FavorService, relationships, event: AstrMessageEvent, target: str, key: str
+) -> str:
+    """/关系设置 QQ号 类型（管理员；类型留空=清除）。"""
+    target = (target or "").strip()
+    key = (key or "").strip()
+    if not target.isdigit():
+        keys = "、".join(relationships.keys()) if relationships else "任意自定义"
+        return f"用法：/关系设置 QQ号 类型（可选：{keys}；留空清除）"
+    await svc.set_relationship(event.get_group_id(), target, key)
+    if not key:
+        return f"已清除 QQ {target} 与小千的关系标签。"
+    label = relationships.label_of(key) if relationships else key
+    return f"已将 QQ {target} 与小千的关系设为「{label}」。"
