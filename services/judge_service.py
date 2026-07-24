@@ -26,13 +26,16 @@ class JudgeResult:
     delta: float     # 调整分值（已限幅，精度一位小数），0 = 中性
     attitude: str    # 友好 / 敌意 / 中性
     raw: str         # 模型原始输出
+    reason: str = ""  # 主模型口吻的变动理由（narrative 模式下有值）
 
 
 class JudgeService:
     """LLM 情绪评估服务。"""
 
     _PARSE_RE = re.compile(
-        r"态度[:：]\s*(友好|善意|敌意|恶意|中性)[\s\S]*?分值[:：]\s*([+-]?\d+)"
+        r"态度[:：]\s*(友好|善意|敌意|恶意|中性)[\s\S]*?"
+        r"分值[:：]\s*([+-]?\d+)"
+        r"(?:[\s\S]*?理由[:：]\s*(.+))?"  # narrative 模式才有；可选
     )
 
     def __init__(
@@ -110,11 +113,12 @@ class JudgeService:
             return None
 
     def _parse(self, content: str) -> JudgeResult | None:
-        """解析模型输出（态度:xx 分值:±n），限幅并校验符号一致性。"""
+        """解析模型输出（态度:xx 分值:±n[ 理由:...]），限幅并校验符号一致性。"""
         m = self._PARSE_RE.search(content)
         if not m:
             return None
         attitude, raw_delta = m.group(1), float(m.group(2))
+        reason = (m.group(3) or "").strip()  # narrative 模式才有
         if attitude in ("友好", "善意"):
             delta = abs(raw_delta)
         elif attitude in ("敌意", "恶意"):
@@ -122,4 +126,4 @@ class JudgeService:
         else:
             delta = 0
         delta = max(-self._max_abs_delta, min(self._max_abs_delta, delta))
-        return JudgeResult(delta=delta, attitude=attitude, raw=content)
+        return JudgeResult(delta=delta, attitude=attitude, raw=content, reason=reason)

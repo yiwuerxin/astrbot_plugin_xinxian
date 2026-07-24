@@ -42,7 +42,7 @@ def _read_resource(rel: str) -> str:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.3.0",
+    "1.4.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -94,7 +94,11 @@ class XinxianPlugin(Star):
             cooldown_sec=int(judge_cfg.get("cooldown_sec", 120)),
             max_abs_delta=float(judge_cfg.get("max_abs_delta", 3)),
             only_when_at_or_reply=bool(judge_cfg.get("only_when_at_or_reply", True)),
-            prompt_template=_read_resource("resources/prompts/judge_prompt.txt"),
+            prompt_template=_read_resource(
+                "resources/prompts/judge_prompt_narrative.txt"
+                if bool(judge_cfg.get("narrative_reason", False))
+                else "resources/prompts/judge_prompt.txt"
+            ),
         )
         self._deps = Deps(
             favor=self._favor,
