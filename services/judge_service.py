@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ class JudgeService:
         only_when_at_or_reply: bool,
         prompt_template: str,
         force_session_model: bool = False,
+        context_window: int = 0,
     ) -> None:
         self._context = context
         self._storage = storage
@@ -60,6 +62,7 @@ class JudgeService:
         self._only_when_at_or_reply = only_when_at_or_reply
         self._prompt_template = prompt_template
         self._force_session_model = force_session_model
+        self._context_window = context_window
 
     async def judge(
         self,
@@ -87,10 +90,11 @@ class JudgeService:
 
         try:
             prompt = self._prompt_template.format(text=text.strip())
+            contexts = await self._recent_context(event)
             try:
-                resp = await provider.text_chat(prompt=prompt, contexts=[])
+                resp = await provider.text_chat(prompt=prompt, contexts=contexts)
             except TypeError:
-                resp = await provider.text_chat(prompt)
+                resp = await provider.text_chat(prompt)  # 不支持 contexts 的 provider：退化为无上下文
             content = (getattr(resp, "completion_text", "") or "").strip()
         except Exception as e:
             logger.warning(f"[心弦] judge 调用失败（已静默降级）: {e}")
@@ -113,6 +117,36 @@ class JudgeService:
         except Exception as e:
             logger.warning(f"[心弦] 获取 provider 失败（已静默降级）: {e}")
             return None
+
+    async def _recent_context(self, event: AstrMessageEvent) -> list[dict]:
+        """取最近 context_window 条会话消息作为评估上下文（仅文本，忽略图片）。失败返回 []。"""
+        n = self._context_window
+        if not n or n <= 0:
+            return []
+        try:
+            umo = getattr(event, "unified_msg_origin", "") or ""
+            cm = getattr(self._context, "conversation_manager", None)
+            get_cid = getattr(cm, "get_curr_conversation_id", None) if cm else None
+            if not umo or not callable(get_cid):
+                return []
+            cid = await get_cid(umo)
+            if not cid:
+                return []
+            conv = await cm.get_conversation(umo, cid)
+            if not conv:
+                return []
+            history = json.loads(getattr(conv, "history", "") or "[]")
+            contexts: list[dict] = []
+            for rec in history[-int(n):]:
+                role = rec.get("role")
+                content = rec.get("content")
+                # 只保留有文本内容的消息；图片/工具调用等不带文本的直接跳过
+                if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                    contexts.append({"role": role, "content": content})
+            return contexts
+        except Exception as e:
+            logger.warning(f"[心弦] 取最近上下文失败（已降级为零上下文）: {e}")
+            return []
 
     def _parse(self, content: str) -> JudgeResult | None:
         """解析模型输出（态度:xx 分值:±n[ 理由:...]），限幅并校验符号一致性。"""
