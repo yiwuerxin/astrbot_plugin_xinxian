@@ -50,6 +50,10 @@ class StorageBackend(ABC):
         """设定关系类型标签（不影响好感度数值）。空串表示清除。"""
 
     @abstractmethod
+    async def set_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
+        """更新成员昵称（不改好感数值）；发言时捕获，供排行图/WebUI 显示名字。"""
+
+    @abstractmethod
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         """群内好感度排行（降序）。"""
 
