@@ -58,6 +58,10 @@ class StorageBackend(ABC):
         """列出当前好感度记录（含 relationship）；group_id 为空则全部群，按 updated_at 倒序。"""
 
     @abstractmethod
+    async def distinct_groups(self) -> list[dict]:
+        """有当前好感记录的群列表（含每群人数），供面板群筛选。"""
+
+    @abstractmethod
     async def daily_gain(self, group_id: str, user_id: str, day: str) -> float:
         """当日净增量（带符号，精度一位小数）。day 格式 YYYY-MM-DD。"""
 
