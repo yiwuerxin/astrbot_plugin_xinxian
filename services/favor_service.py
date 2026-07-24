@@ -148,6 +148,11 @@ class FavorService:
             await self._storage.add_daily_gain(
                 group_id, user_id, date.today().isoformat(), real
             )
+            await self._storage.add_log(
+                group_id, user_id, real,
+                round1(rec.favor - real), rec.favor,
+                reason, source, now,
+            )
         if cooldown_key:
             await self._storage.touch_event(group_id, user_id, cooldown_key, now)
         return FavorChange(
@@ -175,9 +180,16 @@ class FavorService:
 
     # ---------- 管理 ----------
 
-    async def set_favor(self, group_id: str, user_id: str, value: float) -> FavorRecord:
+    async def set_favor(self, group_id: str, user_id: str, value: float, source: str = "admin") -> FavorRecord:
+        before = await self.get(group_id, user_id)
         value = round1(max(self.min_favor, min(self.max_favor, float(value))))
-        return await self._storage.set_value(group_id, user_id, value)
+        rec = await self._storage.set_value(group_id, user_id, value)
+        delta = round1(value - before.favor)
+        if delta != 0:
+            await self._storage.add_log(
+                group_id, user_id, delta, before.favor, value, "set", source, time.time()
+            )
+        return rec
 
     async def reset(self, group_id: str, user_id: str | None = None) -> None:
         await self._storage.reset(group_id, user_id)
