@@ -22,14 +22,16 @@ _CJK_CANDIDATES = [
     "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
 ]
 
-_BG = (247, 248, 250)
-_TITLE = (31, 35, 41)
-_CELL_BG = (255, 255, 255)
-_CELL_BORDER = (226, 230, 237)
-_TEXT = (60, 62, 66)
-_HL_BG = (79, 70, 229)       # 查询人高亮底色
-_HL_TEXT = (255, 255, 255)
-_EMPTY = (144, 147, 153)
+# 千咲（朽叶千咲）配色：黑长直黑发 + 红瞳 + 红黑剪刀 + 湮灭暗调 → 深底 + 绯红强调
+_BG = (26, 24, 30)            # 页面底：近黑微紫（湮灭/暗调）
+_TITLE = (236, 230, 232)      # 标题：近白
+_ACCENT = (172, 36, 50)       # 千咲红（红瞳 / 红黑剪刀）：高亮与强调
+_CELL_BG = (40, 36, 46)       # 单元格底：深紫黑
+_CELL_BORDER = (74, 46, 56)   # 单元格边：暗红紫
+_TEXT = (228, 224, 230)       # 正文：浅
+_HL_BG = _ACCENT              # 查询人高亮：千咲红
+_HL_TEXT = (255, 255, 255)    # 高亮文字：白
+_EMPTY = (150, 142, 150)
 
 
 def _load_font(path: str | None, size: int) -> ImageFont.FreeTypeFont:
@@ -86,6 +88,7 @@ def render_ranking(
     f_cell = _load_font(font_path, 20)
 
     draw.text((pad, pad + 6), title, font=f_title, fill=_TITLE)
+    draw.line([(pad, pad + title_h - 8), (img_w - pad, pad + title_h - 8)], fill=_ACCENT, width=3)
     querier = str(querier_id or "")
 
     if n == 0:
