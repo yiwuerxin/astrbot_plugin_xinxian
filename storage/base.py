@@ -68,5 +68,29 @@ class StorageBackend(ABC):
         """重置数据。user_id 为 None 时清空整群。"""
 
     @abstractmethod
+    async def add_log(
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        favor_before: float,
+        favor_after: float,
+        reason: str,
+        source: str,
+        ts: float,
+    ) -> None:
+        """追加一条好感度变动流水（供 WebUI 展示增减大小与原因）。"""
+
+    @abstractmethod
+    async def query_logs(
+        self,
+        group_id: str | None = None,
+        user_id: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict]:
+        """查询变动流水（时间倒序）。每条 dict 含 id/group_id/user_id/delta/favor_before/favor_after/reason/source/ts。"""
+
+    @abstractmethod
     async def close(self) -> None:
         """关闭并释放资源。"""
