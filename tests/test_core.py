@@ -212,6 +212,33 @@ class TestFavorService:
         asyncio.run(svc.apply_rules("g1", "u1", rules))
         assert asyncio.run(svc.is_first_today("g1", "u1")) is False
 
+    def test_change_is_logged(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, reason="手动", source="api"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert len(rows) == 1
+        assert rows[0]["delta"] == 5.0
+        assert rows[0]["favor_before"] == 0.0
+        assert rows[0]["favor_after"] == 5.0
+        assert rows[0]["reason"] == "手动"
+        assert rows[0]["source"] == "api"
+
+    def test_set_favor_is_logged(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", 80, source="admin"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert len(rows) == 1
+        assert rows[0]["delta"] == 80.0
+        assert rows[0]["reason"] == "set"
+        assert rows[0]["source"] == "admin"
+
+    def test_logs_newest_first(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 1, source="api"))
+        asyncio.run(svc.change("g1", "u1", 2, source="api"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert [r["delta"] for r in rows] == [2.0, 1.0]
+
 
 # ---------------- 一位小数工具 ----------------
 
@@ -284,13 +311,16 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert [r[0] for r in rows] == ["u2", "u", "u3"]
         conn.close()
 
-    def test_fresh_db_is_v2(self, tmp_path):
+    def test_fresh_db_is_latest(self, tmp_path):
         import sqlite3
 
         conn = sqlite3.connect(str(tmp_path / "fresh.db"))
         migrate(conn)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         aff = conn.execute("PRAGMA table_info(daily_gain)").fetchall()[3][2]
         assert aff == "REAL"
+        # v3：favor_log 流水表
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(favor_log)").fetchall()]
+        assert "delta" in cols and "reason" in cols and "source" in cols
         conn.close()
 

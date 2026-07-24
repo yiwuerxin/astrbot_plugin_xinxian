@@ -42,7 +42,7 @@ def _read_resource(rel: str) -> str:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.2.0",
+    "1.3.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -107,6 +107,11 @@ class XinxianPlugin(Star):
 
         # 跨插件 API：context.get_registered_star("astrbot_plugin_xinxian").star_cls.api
         self.api = XinxianFacade(self._favor)
+
+        # 原生 dashboard 页面 API（框架支持时注册，内嵌于主面板，无独立端口/鉴权）
+        from .api.page_api import PageApi
+        self._page_api = PageApi(self._favor, self._storage)
+        self._page_api.register(context)
 
     async def initialize(self) -> None:
         await self._storage.init()

@@ -141,15 +141,71 @@ class SQLiteBackend(StorageBackend):
         with self._lock:
             conn = self._c()
             if user_id is None:
-                for table in ("favor", "daily_gain", "cooldown"):
+                for table in ("favor", "daily_gain", "cooldown", "favor_log"):
                     conn.execute(f"DELETE FROM {table} WHERE group_id=?", (group_id,))
             else:
-                for table in ("favor", "daily_gain", "cooldown"):
+                for table in ("favor", "daily_gain", "cooldown", "favor_log"):
                     conn.execute(
                         f"DELETE FROM {table} WHERE group_id=? AND user_id=?",
                         (group_id, user_id),
                     )
             conn.commit()
+
+    async def add_log(
+        self, group_id, user_id, delta, favor_before, favor_after, reason, source, ts
+    ) -> None:
+        with self._lock:
+            self._c().execute(
+                "INSERT INTO favor_log(group_id, user_id, delta, favor_before, favor_after, reason, source, ts) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    group_id,
+                    user_id,
+                    round1(delta),
+                    round1(favor_before),
+                    round1(favor_after),
+                    reason,
+                    source,
+                    ts,
+                ),
+            )
+            self._c().commit()
+
+    async def query_logs(
+        self, group_id=None, user_id=None, limit=200, offset=0
+    ) -> list[dict]:
+        sql = (
+            "SELECT id, group_id, user_id, delta, favor_before, favor_after, reason, source, ts "
+            "FROM favor_log"
+        )
+        where: list[str] = []
+        args: list = []
+        if group_id:
+            where.append("group_id = ?")
+            args.append(group_id)
+        if user_id:
+            where.append("user_id = ?")
+            args.append(user_id)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"
+        args.extend([int(limit), int(offset)])
+        with self._lock:
+            rows = self._c().execute(sql, args).fetchall()
+        return [
+            {
+                "id": r[0],
+                "group_id": r[1],
+                "user_id": r[2],
+                "delta": float(r[3]),
+                "favor_before": float(r[4]),
+                "favor_after": float(r[5]),
+                "reason": r[6],
+                "source": r[7],
+                "ts": r[8],
+            }
+            for r in rows
+        ]
 
     async def close(self) -> None:
         with self._lock:
