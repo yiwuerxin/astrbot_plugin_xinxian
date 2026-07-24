@@ -29,8 +29,12 @@ class StorageBackend(ABC):
         delta: float,
         max_favor: float,
         min_favor: float = -100.0,
+        decay: tuple[float, float, float] | None = None,
     ) -> tuple[FavorRecord, float]:
         """原子地增减好感度（锁内读-改-写），封顶 min_favor..max_favor。
+
+        decay: 非空时为 (per_day, grace_days, baseline)，落库前先把存量衰减到当下
+            （锁定时间衰减）；为 None 时不衰减。
 
         Returns:
             (更新后的记录, 实际生效的变化量)。越界截断时实际变化量小于 delta。

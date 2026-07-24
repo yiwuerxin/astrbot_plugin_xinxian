@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from datetime import date
 
+from ..core.decay import effective_favor
 from ..core.decimal import round1
 from ..core.events import EventRule
 from ..core.identity import is_master as _is_master
@@ -31,6 +32,10 @@ class FavorService:
         daily_cap_up: float = 15,
         daily_cap_down: float = 15,
         master_ids: list[str] | tuple[str, ...] = (),
+        decay_enabled: bool = False,
+        decay_per_day: float = 1.0,
+        decay_grace_days: float = 3,
+        decay_baseline: float = 0.0,
     ) -> None:
         self._storage = storage
         self._levels = levels
@@ -40,21 +45,42 @@ class FavorService:
         self.daily_cap_up = daily_cap_up
         self.daily_cap_down = daily_cap_down
         self._master_ids = list(master_ids)
+        self._decay = (
+            (float(decay_per_day), float(decay_grace_days), float(decay_baseline))
+            if decay_enabled
+            else None
+        )
 
     # ---------- 查询 ----------
 
+    def _effective(self, stored: float, updated_at: float) -> float:
+        """读取时的有效好感度（启用衰减时按时间向基线靠拢）。"""
+        if self._decay is None:
+            return round1(stored)
+        per_day, grace_days, baseline = self._decay
+        return effective_favor(
+            stored, updated_at, time.time(),
+            per_day=per_day, grace_days=grace_days, baseline=baseline,
+        )
+
     async def get(self, group_id: str, user_id: str) -> FavorRecord:
-        """读取记录；无记录时返回默认值（不落库）。"""
+        """读取记录；无记录时返回默认值（不落库）。返回的是有效好感度（含时间衰减）。"""
         rec = await self._storage.get(group_id, user_id)
         if rec is None:
             rec = FavorRecord(
                 group_id=group_id, user_id=user_id,
                 favor=self.default_favor, updated_at=0.0,
             )
+        else:
+            rec.favor = self._effective(rec.favor, rec.updated_at)
         return rec
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
-        return await self._storage.ranking(group_id, limit)
+        rows = await self._storage.ranking(group_id, limit)
+        for r in rows:
+            r.favor = self._effective(r.favor, r.updated_at)
+        rows.sort(key=lambda r: r.favor, reverse=True)
+        return rows
 
     def level_of(self, favor: float) -> LevelDef:
         return self._levels.level_of(favor)
@@ -154,7 +180,8 @@ class FavorService:
             return FavorChange(0, reason, source, clamped=True, favor_after=rec.favor)
         # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛）
         rec, real = await self._storage.apply_delta(
-            group_id, user_id, allowed, self.max_favor, self.min_favor
+            group_id, user_id, allowed, self.max_favor, self.min_favor,
+            decay=self._decay,
         )
         if real:
             await self._storage.add_daily_gain(
