@@ -49,6 +49,7 @@ class JudgeService:
         max_abs_delta: float,
         only_when_at_or_reply: bool,
         prompt_template: str,
+        force_session_model: bool = False,
     ) -> None:
         self._context = context
         self._storage = storage
@@ -58,6 +59,7 @@ class JudgeService:
         self._max_abs_delta = max_abs_delta
         self._only_when_at_or_reply = only_when_at_or_reply
         self._prompt_template = prompt_template
+        self._force_session_model = force_session_model
 
     async def judge(
         self,
@@ -101,9 +103,9 @@ class JudgeService:
         return result
 
     async def _resolve_provider(self, event: AstrMessageEvent):
-        """解析评估用模型：配置非空按 id 取，否则跟随会话当前模型。"""
+        """解析评估用模型：force_session_model 或 provider_id 留空时，跟随会话当前（主）模型。"""
         try:
-            if self._provider_id:
+            if self._provider_id and not self._force_session_model:
                 return self._context.get_provider_by_id(self._provider_id)
             umo = getattr(event, "unified_msg_origin", "")
             res = self._context.get_using_provider(umo)
