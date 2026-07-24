@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 
+from ..core.decay import effective_favor
 from ..core.decimal import round1
 from ..core.models import FavorRecord
 from .base import StorageBackend
@@ -59,15 +60,26 @@ class SQLiteBackend(StorageBackend):
         delta: float,
         max_favor: float,
         min_favor: float = -100.0,
+        decay: tuple[float, float, float] | None = None,
     ) -> tuple[FavorRecord, float]:
         now = time.time()
         with self._lock:
             conn = self._c()
             row = conn.execute(
-                "SELECT favor FROM favor WHERE group_id=? AND user_id=?",
+                "SELECT favor, updated_at FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
-            current = float(row[0]) if row else 0.0
+            if row:
+                current, last_ts = float(row[0]), row[1]
+            else:
+                current, last_ts = 0.0, 0.0
+            # 时间衰减：落库前先把存量衰减到当下（锁定），再叠加本次增减
+            if decay:
+                per_day, grace_days, baseline = decay
+                current = effective_favor(
+                    current, last_ts, now,
+                    per_day=per_day, grace_days=grace_days, baseline=baseline,
+                )
             # 收敛到 1 位小数：吸收每日限幅边界处的浮点幽灵微增量
             new_value = round1(max(min_favor, min(max_favor, current + delta)))
             real_delta = round1(new_value - current)
