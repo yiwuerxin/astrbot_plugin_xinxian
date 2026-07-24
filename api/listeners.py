@@ -13,6 +13,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
+from ..core.decimal import fmt
 from ..core.events import RuleMatcher
 from ..services.favor_service import FavorService
 from ..services.inject_service import InjectService
@@ -73,7 +74,7 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         if change.delta:
             logger.info(
                 f"[心弦] {group_id}/{user_id} 规则[{change.reason}] "
-                f"{change.delta:+d} -> {change.favor_after}"
+                f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
             )
 
     # 评估引擎（内部自行判断开关/冷却/降级）
@@ -87,7 +88,7 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         if change.delta:
             logger.info(
                 f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
-                f"{change.delta:+d} -> {change.favor_after}"
+                f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
             )
 
 

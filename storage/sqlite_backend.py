@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 
+from ..core.decimal import round1
 from ..core.models import FavorRecord
 from .base import StorageBackend
 from .migrations import migrate
@@ -47,11 +48,18 @@ class SQLiteBackend(StorageBackend):
             ).fetchone()
         if row is None:
             return None
-        return FavorRecord(group_id=group_id, user_id=user_id, favor=row[0], updated_at=row[1])
+        return FavorRecord(
+            group_id=group_id, user_id=user_id, favor=float(row[0]), updated_at=row[1]
+        )
 
     async def apply_delta(
-        self, group_id: str, user_id: str, delta: int, max_favor: int
-    ) -> tuple[FavorRecord, int]:
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        max_favor: float,
+        min_favor: float = -100.0,
+    ) -> tuple[FavorRecord, float]:
         now = time.time()
         with self._lock:
             conn = self._c()
@@ -59,9 +67,10 @@ class SQLiteBackend(StorageBackend):
                 "SELECT favor FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
-            current = row[0] if row else 0
-            new_value = max(0, min(max_favor, current + delta))
-            real_delta = new_value - current
+            current = float(row[0]) if row else 0.0
+            # 收敛到 1 位小数：吸收每日限幅边界处的浮点幽灵微增量
+            new_value = round1(max(min_favor, min(max_favor, current + delta)))
+            real_delta = round1(new_value - current)
             conn.execute(
                 "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
                 "ON CONFLICT(group_id, user_id) DO UPDATE SET "
@@ -71,17 +80,18 @@ class SQLiteBackend(StorageBackend):
             conn.commit()
         return FavorRecord(group_id, user_id, new_value, now), real_delta
 
-    async def set_value(self, group_id: str, user_id: str, value: int) -> FavorRecord:
+    async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
         now = time.time()
+        value = round1(value)
         with self._lock:
             self._c().execute(
                 "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
                 "ON CONFLICT(group_id, user_id) DO UPDATE SET "
                 "favor=excluded.favor, updated_at=excluded.updated_at",
-                (group_id, user_id, int(value), now),
+                (group_id, user_id, value, now),
             )
             self._c().commit()
-        return FavorRecord(group_id, user_id, int(value), now)
+        return FavorRecord(group_id, user_id, value, now)
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         with self._lock:
@@ -90,17 +100,18 @@ class SQLiteBackend(StorageBackend):
                 "WHERE group_id=? ORDER BY favor DESC, updated_at ASC LIMIT ?",
                 (group_id, limit),
             ).fetchall()
-        return [FavorRecord(group_id, r[0], r[1], r[2]) for r in rows]
+        return [FavorRecord(group_id, r[0], float(r[1]), r[2]) for r in rows]
 
-    async def daily_gain(self, group_id: str, user_id: str, day: str) -> int:
+    async def daily_gain(self, group_id: str, user_id: str, day: str) -> float:
         with self._lock:
             row = self._c().execute(
                 "SELECT gain FROM daily_gain WHERE group_id=? AND user_id=? AND day=?",
                 (group_id, user_id, day),
             ).fetchone()
-        return row[0] if row else 0
+        # 读时收敛：消除累积小增量导致的浮点漂移，使每日限幅比较干净
+        return round1(row[0]) if row else 0.0
 
-    async def add_daily_gain(self, group_id: str, user_id: str, day: str, delta: int) -> None:
+    async def add_daily_gain(self, group_id: str, user_id: str, day: str, delta: float) -> None:
         with self._lock:
             self._c().execute(
                 "INSERT INTO daily_gain(group_id, user_id, day, gain) VALUES(?,?,?,?) "

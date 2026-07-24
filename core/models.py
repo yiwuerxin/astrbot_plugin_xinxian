@@ -15,13 +15,13 @@ class FavorRecord:
     Attributes:
         group_id: 群号。
         user_id: 成员 QQ 号。
-        favor: 当前好感度（0..max_favor）。
+        favor: 当前好感度（min_favor..max_favor，可为负；精度一位小数）。
         updated_at: 最近变动时间（epoch 秒，0 表示从未变动）。
     """
 
     group_id: str
     user_id: str
-    favor: int = 0
+    favor: float = 0.0
     updated_at: float = 0.0
 
 
@@ -30,15 +30,15 @@ class LevelDef:
     """好感度等级定义。
 
     Attributes:
-        name: 等级名（陌生/认识/友好/亲密/挚友/挚爱）。
+        name: 等级名（厌恶/陌生/认识/友好/亲密/挚友/挚爱）。
         min_score: 进入该等级的最低分（含）。
         max_score: 该等级最高分（含），-1 表示无上限。
         guidance: 注入提示词用的态度指引文本。
     """
 
     name: str
-    min_score: int
-    max_score: int
+    min_score: float
+    max_score: float
     guidance: str
 
 
@@ -54,8 +54,8 @@ class FavorChange:
         favor_after: 变化后的好感度。
     """
 
-    delta: int
+    delta: float
     reason: str
     source: str
     clamped: bool = False
-    favor_after: int = 0
+    favor_after: float = 0.0

@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from datetime import date
 
+from ..core.decimal import round1
 from ..core.events import EventRule
 from ..core.identity import is_master as _is_master
 from ..core.levels import LevelTable
@@ -24,15 +25,17 @@ class FavorService:
         storage: StorageBackend,
         levels: LevelTable,
         *,
-        max_favor: int = 100,
-        default_favor: int = 0,
-        daily_cap_up: int = 15,
-        daily_cap_down: int = 15,
+        max_favor: float = 100,
+        min_favor: float = -100,
+        default_favor: float = 0,
+        daily_cap_up: float = 15,
+        daily_cap_down: float = 15,
         master_ids: list[str] | tuple[str, ...] = (),
     ) -> None:
         self._storage = storage
         self._levels = levels
         self.max_favor = max_favor
+        self.min_favor = min_favor
         self.default_favor = default_favor
         self.daily_cap_up = daily_cap_up
         self.daily_cap_down = daily_cap_down
@@ -53,7 +56,7 @@ class FavorService:
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         return await self._storage.ranking(group_id, limit)
 
-    def level_of(self, favor: int) -> LevelDef:
+    def level_of(self, favor: float) -> LevelDef:
         return self._levels.level_of(favor)
 
     def is_master(self, user_id: str) -> bool:
@@ -94,7 +97,7 @@ class FavorService:
         return total
 
     async def apply_judge(
-        self, group_id: str, user_id: str, delta: int, reason: str = "judge"
+        self, group_id: str, user_id: str, delta: float, reason: str = "judge"
     ) -> FavorChange:
         """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。"""
         return await self._apply_one(
@@ -104,7 +107,7 @@ class FavorService:
         )
 
     async def change(
-        self, group_id: str, user_id: str, delta: int,
+        self, group_id: str, user_id: str, delta: float,
         reason: str = "api", source: str = "api",
     ) -> FavorChange:
         """通用增减入口（跨插件 API / 指令使用，无事件冷却，仍受每日限幅）。"""
@@ -118,7 +121,7 @@ class FavorService:
         self,
         group_id: str,
         user_id: str,
-        delta: int,
+        delta: float,
         *,
         cooldown_key: str | None,
         cooldown_sec: int,
@@ -137,8 +140,10 @@ class FavorService:
         if allowed == 0:
             rec = await self.get(group_id, user_id)
             return FavorChange(0, reason, source, clamped=True, favor_after=rec.favor)
-        # 3. 落库（锁内原子，含 0..max 封顶）
-        rec, real = await self._storage.apply_delta(group_id, user_id, allowed, self.max_favor)
+        # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛）
+        rec, real = await self._storage.apply_delta(
+            group_id, user_id, allowed, self.max_favor, self.min_favor
+        )
         if real:
             await self._storage.add_daily_gain(
                 group_id, user_id, date.today().isoformat(), real
@@ -150,22 +155,28 @@ class FavorService:
             clamped=capped or real != allowed, favor_after=rec.favor,
         )
 
-    async def _cap_by_daily(self, group_id: str, user_id: str, delta: int) -> tuple[int, bool]:
+    async def _cap_by_daily(
+        self, group_id: str, user_id: str, delta: float
+    ) -> tuple[float, bool]:
         """按当日净增量做双向限幅。返回 (限幅后的delta, 是否被截断)。"""
         today = date.today().isoformat()
-        gain = await self._storage.daily_gain(group_id, user_id, today)
+        # 读时收敛，消除累积小增量的浮点漂移，使比较干净
+        gain = round1(await self._storage.daily_gain(group_id, user_id, today))
         if delta > 0:
-            used = max(0, gain)
-            allowed = max(0, min(delta, self.daily_cap_up - used))
+            used = max(0.0, gain)
+            allowed = max(0.0, min(delta, self.daily_cap_up - used))
         else:
-            used = max(0, -gain)
-            allowed = -max(0, min(-delta, self.daily_cap_down - used))
+            used = max(0.0, -gain)
+            allowed = -max(0.0, min(-delta, self.daily_cap_down - used))
+        # allowed 也要收敛：daily_cap_up - used 这类减法会引入 IEEE-754 噪声
+        # （如 0.3-0.1=0.1999…），不收敛会让 clamped 标志被误判。
+        allowed = round1(allowed)
         return allowed, allowed != delta
 
     # ---------- 管理 ----------
 
-    async def set_favor(self, group_id: str, user_id: str, value: int) -> FavorRecord:
-        value = max(0, min(self.max_favor, int(value)))
+    async def set_favor(self, group_id: str, user_id: str, value: float) -> FavorRecord:
+        value = round1(max(self.min_favor, min(self.max_favor, float(value))))
         return await self._storage.set_value(group_id, user_id, value)
 
     async def reset(self, group_id: str, user_id: str | None = None) -> None:
