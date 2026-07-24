@@ -61,3 +61,24 @@ async def handle_set_relationship(
         return f"已清除 QQ {target} 与小千的关系标签。"
     label = relationships.label_of(key) if relationships else key
     return f"已将 QQ {target} 与小千的关系设为「{label}」。"
+
+
+async def try_text_wake(
+    svc: FavorService,
+    event: AstrMessageEvent,
+    query_phrases: set[str],
+    ranking_phrases: set[str],
+    ranking_limit: int,
+) -> str | None:
+    """群聊文字唤醒：整条消息精确命中短语 → 返回对应查询回复；否则 None。
+
+    带 / 前缀的消息不在此处理（交由 / 指令），避免重复回复。
+    """
+    msg = (event.message_str or "").strip()
+    if not msg or msg.startswith("/"):
+        return None
+    if msg in query_phrases:
+        return await handle_query(svc, event)
+    if msg in ranking_phrases:
+        return await handle_ranking(svc, event, ranking_limit)
+    return None
