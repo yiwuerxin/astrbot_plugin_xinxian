@@ -1,4 +1,4 @@
-const { createApp, ref, onMounted } = Vue;
+const { createApp, ref, computed, onMounted } = Vue;
 
 createApp({
   setup() {
@@ -86,6 +86,11 @@ createApp({
       }
     };
 
+    const visibleUsers = computed(() => {
+      const q = filterUser.value.trim();
+      return q ? users.value.filter((u) => u.user_id.indexOf(q) !== -1) : users.value;
+    });
+
     const refresh = () => (tab.value === "logs" ? fetchLogs() : fetchUsers());
     const switchTab = (t) => {
       tab.value = t;
@@ -105,7 +110,7 @@ createApp({
     });
 
     return {
-      tab, loading, errorMsg, logs, users, groups,
+      tab, loading, errorMsg, logs, users, visibleUsers, groups,
       filterGroup, filterUser, filterLimit,
       fmtTime, fmtNum, fmtDelta, fmtIdle, sourceLabel,
       fetchLogs, fetchUsers, refresh, switchTab,
@@ -128,7 +133,7 @@ createApp({
             {{ g.group_id }}（{{ g.count }}）
           </option>
         </select>
-        <input v-if="tab === 'logs'" class="xx-input" v-model="filterUser" placeholder="按 QQ 号筛选" @keyup.enter="fetchLogs">
+        <input class="xx-input" v-model="filterUser" placeholder="按 QQ 号筛选（模糊）" @keyup.enter="tab === 'logs' && fetchLogs()">
         <select v-if="tab === 'logs'" v-model="filterLimit" @change="fetchLogs">
           <option :value="100">最近 100</option>
           <option :value="300">最近 300</option>
@@ -150,10 +155,10 @@ createApp({
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!users.length">
-              <td colspan="7" class="xx-empty">{{ loading ? "加载中…" : "暂无成员" }}</td>
+            <tr v-if="!visibleUsers.length">
+              <td colspan="7" class="xx-empty">{{ loading ? "加载中…" : (users.length ? "无匹配成员" : "暂无成员") }}</td>
             </tr>
-            <tr v-for="u in users" :key="u.group_id + '_' + u.user_id">
+            <tr v-for="u in visibleUsers" :key="u.group_id + '_' + u.user_id">
               <td class="xx-mono">{{ u.group_id }}</td>
               <td class="xx-mono">{{ u.user_id }}</td>
               <td class="xx-mono">

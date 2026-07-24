@@ -144,6 +144,13 @@ class SQLiteBackend(StorageBackend):
                 recs = [FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "") for r in rows]
         return recs
 
+    async def distinct_groups(self) -> list[dict]:
+        with self._lock:
+            rows = self._c().execute(
+                "SELECT group_id, COUNT(*) FROM favor GROUP BY group_id ORDER BY group_id"
+            ).fetchall()
+        return [{"group_id": r[0], "count": r[1]} for r in rows]
+
     async def daily_gain(self, group_id: str, user_id: str, day: str) -> float:
         with self._lock:
             row = self._c().execute(
@@ -226,8 +233,8 @@ class SQLiteBackend(StorageBackend):
             where.append("group_id = ?")
             args.append(group_id)
         if user_id:
-            where.append("user_id = ?")
-            args.append(user_id)
+            where.append("user_id LIKE ?")
+            args.append(f"%{user_id}%")
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"
