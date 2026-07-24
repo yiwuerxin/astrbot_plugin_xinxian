@@ -1,0 +1,118 @@
+{
+  "master_ids": {
+    "type": "string",
+    "description": "主人 QQ 号（多个用英文逗号分隔）。主人有专属身份标识，但好感度数值照常涨跌",
+    "default": ""
+  },
+  "max_favor": {
+    "type": "int",
+    "description": "好感度上限",
+    "default": 100
+  },
+  "default_favor": {
+    "type": "int",
+    "description": "新成员初始好感度",
+    "default": 0
+  },
+  "daily_cap_up": {
+    "type": "int",
+    "description": "每日好感度上涨上限（规则+评估合计）",
+    "default": 15
+  },
+  "daily_cap_down": {
+    "type": "int",
+    "description": "每日好感度下降上限（绝对值）",
+    "default": 15
+  },
+  "rules": {
+    "type": "object",
+    "description": "规则事件：明确行为触发的好感度增减",
+    "items": {
+      "praised": {
+        "type": "object",
+        "description": "被夸",
+        "items": {
+          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
+          "delta": { "type": "int", "default": 3, "description": "分值" },
+          "cooldown_sec": { "type": "int", "default": 300, "description": "同一成员冷却秒数" },
+          "keywords": { "type": "string", "default": "厉害,可爱,喜欢,棒,谢谢,爱你", "description": "触发关键词，英文逗号分隔" }
+        }
+      },
+      "insulted": {
+        "type": "object",
+        "description": "被骂",
+        "items": {
+          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
+          "delta": { "type": "int", "default": -5, "description": "分值（负数）" },
+          "cooldown_sec": { "type": "int", "default": 300, "description": "同一成员冷却秒数" },
+          "keywords": { "type": "string", "default": "沙比,笨,蠢,垃圾,讨厌,闭嘴", "description": "触发关键词，英文逗号分隔" }
+        }
+      },
+      "at_mention": {
+        "type": "object",
+        "description": "@小千",
+        "items": {
+          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
+          "delta": { "type": "int", "default": 1, "description": "分值" },
+          "cooldown_sec": { "type": "int", "default": 600, "description": "同一成员冷却秒数" }
+        }
+      },
+      "reply_bot": {
+        "type": "object",
+        "description": "回复小千的消息",
+        "items": {
+          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
+          "delta": { "type": "int", "default": 1, "description": "分值" },
+          "cooldown_sec": { "type": "int", "default": 600, "description": "同一成员冷却秒数" }
+        }
+      },
+      "daily_first": {
+        "type": "object",
+        "description": "当日首次互动",
+        "items": {
+          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
+          "delta": { "type": "int", "default": 2, "description": "分值" }
+        }
+      }
+    }
+  },
+  "judge": {
+    "type": "object",
+    "description": "LLM 情绪评估：对小千说的话由模型判断态度并微调好感度",
+    "items": {
+      "enabled": { "type": "bool", "default": true, "description": "总开关" },
+      "provider_id": { "type": "string", "_special": "select_provider", "default": "", "description": "评估用模型，留空跟随会话当前模型（建议选便宜小模型）" },
+      "cooldown_sec": { "type": "int", "default": 120, "description": "同一成员评估冷却秒数" },
+      "max_abs_delta": { "type": "int", "default": 3, "description": "单次评估最大调整幅度（绝对值）" },
+      "only_when_at_or_reply": { "type": "bool", "default": true, "description": "仅在@或回复小千时才评估（省成本）" }
+    }
+  },
+  "levels": {
+    "type": "object",
+    "description": "好感度等级阈值与态度指引",
+    "items": {
+      "mosheng": { "type": "object", "description": "陌生", "items": { "min": { "type": "int", "default": 0 }, "guidance": { "type": "text", "default": "礼貌而疏离，保持分寸，不主动亲昵" } } },
+      "renshi": { "type": "object", "description": "认识", "items": { "min": { "type": "int", "default": 10 }, "guidance": { "type": "text", "default": "友善客气，像刚认识的朋友" } } },
+      "youhao": { "type": "object", "description": "友好", "items": { "min": { "type": "int", "default": 30 }, "guidance": { "type": "text", "default": "放松自然，会开玩笑、主动接话" } } },
+      "qinmi": { "type": "object", "description": "亲密", "items": { "min": { "type": "int", "default": 55 }, "guidance": { "type": "text", "default": "亲昵随意，会撒娇、记挂对方，偶尔吃醋" } } },
+      "zhiyou": { "type": "object", "description": "挚友", "items": { "min": { "type": "int", "default": 80 }, "guidance": { "type": "text", "default": "无话不谈，袒护 TA，情绪上依赖 TA" } } },
+      "zhiai": { "type": "object", "description": "挚爱", "items": { "min": { "type": "int", "default": 95 }, "guidance": { "type": "text", "default": "全身心信任与依恋，把 TA 放在所有人之前" } } }
+    }
+  },
+  "inject": {
+    "type": "object",
+    "description": "对话时把好感度档案注入提示词",
+    "items": {
+      "enabled": { "type": "bool", "default": true, "description": "注入开关" },
+      "master_title": { "type": "string", "default": "主人", "description": "主人称谓" },
+      "template": { "type": "text", "default": "", "description": "自定义注入模板，留空使用内置模板（resources/prompts/inject_template.txt）" }
+    }
+  },
+  "command": {
+    "type": "object",
+    "description": "指令相关",
+    "items": {
+      "ranking_limit": { "type": "int", "default": 10, "description": "好感排行默认条数" }
+    }
+  }
+}

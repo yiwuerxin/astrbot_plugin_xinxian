@@ -1,0 +1,69 @@
+"""心弦好感度 - 跨插件稳定 API。
+
+其他插件获取方式（AstrBot 跨插件调用惯例）：
+
+    star = context.get_registered_star("astrbot_plugin_xinxian")
+    api = star.star_cls.api          # 即本类的实例
+    favor = await api.get_favor(group_id, user_id)
+
+本接口承诺向后兼容：只增不改。扩展能力请新增方法。
+"""
+
+from __future__ import annotations
+
+from ..services.favor_service import FavorService
+
+
+class XinxianFacade:
+    """心弦对外 API 门面。"""
+
+    def __init__(self, favor: FavorService) -> None:
+        self._favor = favor
+
+    async def get_favor(self, group_id: str, user_id: str) -> int:
+        """查询好感度数值。无记录返回初始值。"""
+        rec = await self._favor.get(group_id, user_id)
+        return rec.favor
+
+    async def get_level(self, group_id: str, user_id: str) -> dict:
+        """查询完整等级信息。
+
+        Returns:
+            {"favor": int, "level": str, "guidance": str, "is_master": bool}
+        """
+        rec = await self._favor.get(group_id, user_id)
+        lv = self._favor.level_of(rec.favor)
+        return {
+            "favor": rec.favor,
+            "level": lv.name,
+            "guidance": lv.guidance,
+            "is_master": self._favor.is_master(user_id),
+        }
+
+    async def add_favor(
+        self, group_id: str, user_id: str, delta: int, reason: str = "api"
+    ) -> int:
+        """增减好感度（受每日限幅），返回变化后的数值。"""
+        change = await self._favor.change(group_id, user_id, delta, reason=reason)
+        return change.favor_after
+
+    async def set_favor(self, group_id: str, user_id: str, value: int) -> int:
+        """直接设定好感度，返回设定后的数值。"""
+        rec = await self._favor.set_favor(group_id, user_id, value)
+        return rec.favor
+
+    async def get_ranking(self, group_id: str, limit: int = 10) -> list[dict]:
+        """群内好感度排行（降序）。"""
+        rows = await self._favor.ranking(group_id, limit)
+        return [
+            {
+                "user_id": r.user_id,
+                "favor": r.favor,
+                "level": self._favor.level_of(r.favor).name,
+            }
+            for r in rows
+        ]
+
+    def is_master(self, user_id: str) -> bool:
+        """判断是否为主人（按 QQ 号）。"""
+        return self._favor.is_master(user_id)
