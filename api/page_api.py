@@ -9,8 +9,8 @@ from __future__ import annotations
 
 PLUGIN_NAME = "astrbot_plugin_xinxian"
 
-try:  # dashboard 服务基于 Flask；无 Flask 的环境则不注册页面 API
-    from flask import jsonify, request
+try:  # dashboard 服务基于 Quart（异步 Flask），用 quart 的 jsonify/request
+    from quart import jsonify, request
 except ImportError:  # pragma: no cover
     jsonify = None
     request = None
