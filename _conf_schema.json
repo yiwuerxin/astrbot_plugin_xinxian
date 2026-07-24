@@ -75,7 +75,9 @@
     "items": {
       "enabled": { "type": "bool", "default": true, "description": "注入开关" },
       "master_title": { "type": "string", "default": "主人", "description": "主人称谓" },
-      "template": { "type": "text", "default": "", "description": "自定义注入模板，留空使用内置模板（resources/prompts/inject_template.txt）" }
+      "template": { "type": "text", "default": "", "description": "自定义注入模板，留空使用内置模板（resources/prompts/inject_template.txt）。含 {recent_events} 占位才会注入近期印象" },
+      "memory_count": { "type": "int", "default": 3, "description": "注入「近期印象」的最近变动条数（从流水取，让小千记得具体的事）。0=关闭" },
+      "memory_days": { "type": "int", "default": 7, "description": "「近期印象」只取最近 N 天内的变动（超出的视为淡忘，不注入）" }
     }
   },
   "command": {
