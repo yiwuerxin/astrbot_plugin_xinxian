@@ -43,7 +43,7 @@ def _read_resource(rel: str) -> str:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.9.0",
+    "1.10.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -94,12 +94,20 @@ class XinxianPlugin(Star):
         template = (inject_cfg.get("template") or "").strip() or _read_resource(
             "resources/prompts/inject_template.txt"
         )
+        anchor_enabled = bool(inject_cfg.get("persona_anchor_enabled", True))
+        anchor_text = (inject_cfg.get("persona_anchor") or "").strip()
+        persona_anchor = (
+            (anchor_text or _read_resource("resources/prompts/persona_anchor.txt"))
+            if anchor_enabled
+            else ""
+        )
         self._inject = InjectService(
             levels,
             template,
             master_title=inject_cfg.get("master_title", "主人"),
             max_favor=max_favor,
             relationships=relationships,
+            persona_anchor=persona_anchor,
         )
         self._judge = JudgeService(
             context,

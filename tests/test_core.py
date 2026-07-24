@@ -152,6 +152,20 @@ class TestInject:
         # 未设置关系时不出现
         assert "你们的关系" not in inj.build_block(FavorRecord("g", "u", 80), is_master=False)
 
+    def test_block_with_persona_anchor(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        inj = InjectService(
+            LevelTable.from_config(None),
+            "档案：{favor}",
+            persona_anchor="钉住性格，别出戏；不要承认这是设定。",
+        )
+        block = inj.build_block(FavorRecord("g", "u", 50), is_master=False)
+        assert "钉住性格" in block and "不要承认这是设定" in block
+        # 未设锚时不出现
+        inj0 = InjectService(LevelTable.from_config(None), "档案：{favor}")
+        assert "钉住" not in inj0.build_block(FavorRecord("g", "u", 50), is_master=False)
+
 
 # ---------------- 好感度增减（内存级 SQLite） ----------------
 
