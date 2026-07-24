@@ -13,11 +13,6 @@ from ..services.favor_service import FavorService
 from . import llm_tools
 
 
-async def handle_query(svc: FavorService, event: AstrMessageEvent) -> str:
-    """/好感度 —— 查自己。"""
-    return await llm_tools.tool_query_favor(svc, event, "")
-
-
 async def handle_ranking(svc: FavorService, event: AstrMessageEvent, limit: int = 10) -> str:
     """/好感排行 —— 查本群榜单。"""
     return await llm_tools.tool_query_ranking(svc, event, limit)
@@ -75,15 +70,14 @@ async def build_rank_image(
 async def try_text_wake(
     svc: FavorService,
     event: AstrMessageEvent,
-    query_phrases: set[str],
     ranking_phrases: set[str],
     font_path: str = "",
     rows_per_col: int = 12,
 ) -> str | None:
-    """群聊文字唤醒：命中短语 → 返回排行图片路径；否则 None。带 / 的交由 / 指令。"""
+    """群聊文字唤醒：命中排行短语 → 返回排行图片路径；否则 None。带 / 的交由 / 指令。"""
     msg = (event.message_str or "").strip()
     if not msg or msg.startswith("/"):
         return None
-    if msg in query_phrases or msg in ranking_phrases:
+    if msg in ranking_phrases:
         return await build_rank_image(svc, event, font_path, rows_per_col)
     return None
