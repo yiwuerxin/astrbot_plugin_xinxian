@@ -69,6 +69,18 @@ class FavorService:
             return True
         return date.fromtimestamp(last) < date.today()
 
+    async def recent_events(
+        self, group_id: str, user_id: str, count: int = 3, days: int = 7
+    ) -> list[dict]:
+        """最近 days 天内、最近 count 条变动流水（倒序），供注入「近期印象」。"""
+        if not count or count <= 0:
+            return []
+        rows = await self._storage.query_logs(group_id, user_id, limit=max(count * 5, count))
+        if days and days > 0:
+            cutoff = time.time() - days * 86400
+            rows = [r for r in rows if r.get("ts", 0) >= cutoff]
+        return rows[:count]
+
     # ---------- 增减 ----------
 
     async def apply_rules(

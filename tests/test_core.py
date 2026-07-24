@@ -80,6 +80,36 @@ class TestIdentity:
         assert not is_master("999", ["123456789"])
 
 
+# ---------------- 注入（近期印象）----------------
+
+
+class TestInject:
+    def test_block_with_and_without_events(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        levels = LevelTable.from_config(None)
+        tpl = (
+            "[好感度档案]\n"
+            "- 好感度：{favor}/{max_favor}（{level_name}）\n"
+            "- 态度指引：{level_guidance}{recent_events}\n"
+        )
+        inj = InjectService(levels, tpl)
+        rec = FavorRecord("g", "u", 50.5)
+        now = time.time()
+        events = [
+            {"reason": "夸我可爱", "delta": 1.2, "ts": now - 3600},
+            {"reason": "催我回消息", "delta": -0.5, "ts": now - 90000},
+        ]
+        block = inj.build_block(rec, is_master=False, recent_events=events)
+        assert "近期印象" in block
+        assert "夸我可爱" in block and "+1.2" in block
+        assert "催我回消息" in block and "-0.5" in block
+
+        # 无事件时不出现「近期印象」
+        block0 = inj.build_block(rec, is_master=False, recent_events=[])
+        assert "近期印象" not in block0
+
+
 # ---------------- 好感度增减（内存级 SQLite） ----------------
 
 def _make_service(tmp_path, **kw) -> FavorService:
@@ -238,6 +268,14 @@ class TestFavorService:
         asyncio.run(svc.change("g1", "u1", 2, source="api"))
         rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
         assert [r["delta"] for r in rows] == [2.0, 1.0]
+
+    def test_recent_events(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 1.2, reason="夸", source="judge"))
+        ev = asyncio.run(svc.recent_events("g1", "u1", count=3, days=7))
+        assert len(ev) == 1 and ev[0]["delta"] == 1.2
+        assert asyncio.run(svc.recent_events("g1", "u1", count=0)) == []  # 关闭
+        assert asyncio.run(svc.recent_events("g2", "u1", count=3, days=7)) == []  # 每群独立
 
 
 # ---------------- 一位小数工具 ----------------

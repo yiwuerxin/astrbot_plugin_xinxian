@@ -42,7 +42,7 @@ def _read_resource(rel: str) -> str:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.6.0",
+    "1.7.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -108,6 +108,8 @@ class XinxianPlugin(Star):
             inject=self._inject,
             matcher=RuleMatcher.from_config(config),
             inject_enabled=bool(inject_cfg.get("enabled", True)),
+            memory_count=int(inject_cfg.get("memory_count", 3)),
+            memory_days=int(inject_cfg.get("memory_days", 7)),
         )
         self._ranking_limit = int((config.get("command") or {}).get("ranking_limit", 10))
 
