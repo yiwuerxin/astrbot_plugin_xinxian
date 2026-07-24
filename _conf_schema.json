@@ -52,7 +52,8 @@
       "cooldown_sec": { "type": "int", "default": 120, "description": "同一成员评估冷却秒数" },
       "max_abs_delta": { "type": "float", "default": 3, "description": "单次评估最大调整幅度（绝对值，支持一位小数）" },
       "only_when_at_or_reply": { "type": "bool", "default": true, "description": "仅在@或回复小千时才评估（省成本）" },
-      "narrative_reason": { "type": "bool", "default": false, "description": "开启后强制用当前会话（主）模型评估，并按小千口吻写变动理由（仅分值非 0 时），写入流水供面板查看，更符合人格" }
+      "narrative_reason": { "type": "bool", "default": false, "description": "开启后强制用当前会话（主）模型评估，并按小千口吻写变动理由（仅分值非 0 时），写入流水供面板查看，更符合人格" },
+      "context_window": { "type": "int", "default": 0, "description": "评估时带入最近 N 条会话消息作为上下文（仅文本，图片忽略），便于结合语境判断（如识别反讽）。0=不带上下文（最省 token）" }
     }
   },
   "levels": {
