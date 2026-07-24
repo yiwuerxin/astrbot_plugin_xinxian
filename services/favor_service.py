@@ -53,6 +53,7 @@ class FavorService:
             else None
         )
         self._relationships = relationships
+        self._nick_cache: dict[tuple[str, str], str] = {}
 
     # ---------- 查询 ----------
 
@@ -101,6 +102,7 @@ class FavorService:
                 "decayed": round1(r.favor) != eff,
                 "level": self.level_of(eff).name,
                 "relationship": self.relationship_label(r.relationship) if r.relationship else "",
+                "nickname": r.nickname or "",
                 "updated_at": r.updated_at,
                 "idle_days": idle,
             })
@@ -125,6 +127,17 @@ class FavorService:
         if rec is None:
             await self._storage.set_value(group_id, user_id, self.default_favor)
         await self._storage.set_relationship(group_id, user_id, (relationship or "").strip())
+
+    async def touch_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
+        """更新成员昵称；带内存缓存，昵称未变不写库（不影响好感数值）。"""
+        nick = (nickname or "").strip()
+        if not nick:
+            return
+        key = (group_id, user_id)
+        if self._nick_cache.get(key) == nick:
+            return
+        await self._storage.set_nickname(group_id, user_id, nick)
+        self._nick_cache[key] = nick
 
     async def is_first_today(self, group_id: str, user_id: str) -> bool:
         """该成员当日是否还没有互动记录（用于 DAILY_FIRST 事件）。"""
