@@ -26,6 +26,7 @@ from .api.listeners import Deps, on_group_message, on_llm_request
 from .core.events import RuleMatcher
 from .core.identity import parse_master_ids
 from .core.levels import LevelTable
+from .core.relationship import RelationshipTable
 from .services.favor_service import FavorService
 from .services.inject_service import InjectService
 from .services.judge_service import JudgeService
@@ -42,7 +43,7 @@ def _read_resource(rel: str) -> str:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.8.0",
+    "1.9.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -64,6 +65,13 @@ class XinxianPlugin(Star):
 
         self._storage = SQLiteBackend(data_dir / "xinxian.db")
         decay_cfg = config.get("decay") or {}
+        rel_cfg = config.get("relationship") or {}
+        relationships = (
+            RelationshipTable.from_config(rel_cfg)
+            if bool(rel_cfg.get("enabled", False))
+            else None
+        )
+        self._relationships = relationships
         self._favor = FavorService(
             self._storage,
             levels,
@@ -77,6 +85,7 @@ class XinxianPlugin(Star):
             decay_per_day=float(decay_cfg.get("per_day", 1.0)),
             decay_grace_days=float(decay_cfg.get("grace_days", 3)),
             decay_baseline=float(decay_cfg.get("baseline", 0.0)),
+            relationships=relationships,
         )
 
         judge_cfg = config.get("judge") or {}
@@ -90,6 +99,7 @@ class XinxianPlugin(Star):
             template,
             master_title=inject_cfg.get("master_title", "主人"),
             max_favor=max_favor,
+            relationships=relationships,
         )
         self._judge = JudgeService(
             context,
@@ -169,6 +179,14 @@ class XinxianPlugin(Star):
     async def _cmd_reset(self, event: AstrMessageEvent, target: str = ""):
         """重置好感度（管理员）。用法：/好感重置 [QQ号]，不带参数清空整群"""
         yield event.plain_result(await cmd.handle_reset(self._favor, event, target))
+
+    @filter.command("关系设置")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def _cmd_set_rel(self, event: AstrMessageEvent, target: str = "", key: str = ""):
+        """设置某成员与小千的关系（管理员）。用法：/关系设置 QQ号 类型"""
+        yield event.plain_result(
+            await cmd.handle_set_relationship(self._favor, self._relationships, event, target, key)
+        )
 
     # ---------------- LLM 工具 ----------------
 

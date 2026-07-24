@@ -23,6 +23,7 @@ class FavorRecord:
     user_id: str
     favor: float = 0.0
     updated_at: float = 0.0
+    relationship: str = ""
 
 
 @dataclass

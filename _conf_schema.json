@@ -96,5 +96,23 @@
       "grace_days": { "type": "int", "default": 3, "description": "宽限天数；idle 不超过此值不衰减" },
       "baseline": { "type": "float", "default": 0, "description": "衰减基线（好感向此值靠拢，不会越过）" }
     }
+  },
+  "relationship": {
+    "type": "object",
+    "description": "关系类型：给每人一个关系标签（与好感数值正交：数值管冷热，类型管角色）",
+    "items": {
+      "enabled": { "type": "bool", "default": false, "description": "总开关" },
+      "types": {
+        "type": "object",
+        "description": "预设关系类型（key→展示名/语气指引），可改 label/guidance；指令用 key 设置",
+        "items": {
+          "friend": { "type": "object", "description": "朋友", "items": { "label": { "type": "string", "default": "朋友" }, "guidance": { "type": "text", "default": "把 TA 当朋友：平等、随和，可以开玩笑" } } },
+          "soulmate": { "type": "object", "description": "挚友", "items": { "label": { "type": "string", "default": "挚友" }, "guidance": { "type": "text", "default": "把 TA 当无话不谈的知己：彼此袒护、情绪上依赖 TA" } } },
+          "lover": { "type": "object", "description": "恋人", "items": { "label": { "type": "string", "default": "恋人" }, "guidance": { "type": "text", "default": "把 TA 当恋人：会吃醋、撒娇、依赖，把 TA 放在心上" } } },
+          "family": { "type": "object", "description": "家人", "items": { "label": { "type": "string", "default": "家人" }, "guidance": { "type": "text", "default": "把 TA 当家人：自然亲近、不用客套" } } },
+          "disliked": { "type": "object", "description": "讨厌的人", "items": { "label": { "type": "string", "default": "讨厌的人" }, "guidance": { "type": "text", "default": "反感 TA，保持距离、态度冷淡" } } }
+        }
+      }
+    }
   }
 }
