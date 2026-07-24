@@ -373,6 +373,15 @@ class TestFavorService:
         gmap = {g["group_id"]: g["count"] for g in asyncio.run(svc._storage.distinct_groups())}
         assert gmap == {"g1": 2, "g2": 1}
 
+    def test_set_nickname(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.set_favor("g1", "u1", 50))
+        asyncio.run(svc.touch_nickname("g1", "u1", "小明"))
+        rec = asyncio.run(svc.get("g1", "u1"))
+        assert rec.nickname == "小明"
+        rows = asyncio.run(svc.standings("g1"))
+        assert rows[0]["nickname"] == "小明"
+
 
 # ---------------- 一位小数工具 ----------------
 
@@ -498,5 +507,15 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         cols = [c[1] for c in conn.execute("PRAGMA table_info(favor)").fetchall()]
         assert "relationship" in cols
+        conn.close()
+
+    def test_v5_nickname_column(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        migrate(conn)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(favor)").fetchall()]
+        assert "nickname" in cols
         conn.close()
 

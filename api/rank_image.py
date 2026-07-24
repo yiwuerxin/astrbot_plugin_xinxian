@@ -72,7 +72,7 @@ def render_ranking(
     cols = max(1, math.ceil(n / rows_per_col)) if n else 1
     rows_in_col = math.ceil(n / cols) if n else 1
 
-    cell_w, cell_h = 244, 46
+    cell_w, cell_h = 300, 46
     gap_x, gap_y = 14, 12
     pad = 24
     title_h = 56
@@ -100,7 +100,12 @@ def render_ranking(
             [x, y, x + cell_w, y + cell_h], radius=10,
             fill=_HL_BG if is_q else _CELL_BG, outline=_CELL_BORDER,
         )
-        txt = f"({_last4(r.get('user_id', ''))}): {_favor_str(r.get('favor', 0))}"
+        nick = str(r.get("nickname") or "").strip()
+        last4 = _last4(r.get("user_id", ""))
+        label = f"{nick} ({last4})" if nick else f"({last4})"
+        if len(label) > 18:
+            label = label[:17] + "…"
+        txt = f"{label}: {_favor_str(r.get('favor', 0))}"
         color = _HL_TEXT if is_q else _TEXT
         bbox = draw.textbbox((0, 0), txt, font=f_cell)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]

@@ -30,6 +30,8 @@ createApp({
     };
     const fmtIdle = (d) =>
       d == null ? "从未" : d <= 0 ? "今天" : d === 1 ? "昨天" : `${d}天前`;
+    const fmtUser = (u) =>
+      u.nickname ? `${u.nickname} (${u.user_id})` : `(${u.user_id})`;
     const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定" };
     const sourceLabel = (s) => SOURCE_LABEL[s] || s || "-";
 
@@ -112,7 +114,7 @@ createApp({
     return {
       tab, loading, errorMsg, logs, users, visibleUsers, groups,
       filterGroup, filterUser, filterLimit,
-      fmtTime, fmtNum, fmtDelta, fmtIdle, sourceLabel,
+      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel,
       fetchLogs, fetchUsers, refresh, switchTab,
     };
   },
@@ -160,7 +162,7 @@ createApp({
             </tr>
             <tr v-for="u in visibleUsers" :key="u.group_id + '_' + u.user_id">
               <td class="xx-mono">{{ u.group_id }}</td>
-              <td class="xx-mono">{{ u.user_id }}</td>
+              <td class="xx-mono">{{ fmtUser(u) }}</td>
               <td class="xx-mono">
                 {{ fmtNum(u.favor) }}
                 <span v-if="u.decayed" class="xx-tag" :title="'原 ' + fmtNum(u.stored_favor)">衰减</span>

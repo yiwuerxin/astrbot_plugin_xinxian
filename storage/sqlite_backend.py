@@ -44,14 +44,15 @@ class SQLiteBackend(StorageBackend):
     async def get(self, group_id: str, user_id: str) -> FavorRecord | None:
         with self._lock:
             row = self._c().execute(
-                "SELECT favor, updated_at, relationship FROM favor WHERE group_id=? AND user_id=?",
+                "SELECT favor, updated_at, relationship, nickname FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
         if row is None:
             return None
         return FavorRecord(
             group_id=group_id, user_id=user_id,
-            favor=float(row[0]), updated_at=row[1], relationship=row[2] or "",
+            favor=float(row[0]), updated_at=row[1],
+            relationship=row[2] or "", nickname=row[3] or "",
         )
 
     async def apply_delta(
@@ -117,6 +118,16 @@ class SQLiteBackend(StorageBackend):
             )
             self._c().commit()
 
+    async def set_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
+        now = time.time()
+        with self._lock:
+            self._c().execute(
+                "INSERT INTO favor(group_id, user_id, updated_at, nickname) VALUES(?,?,?,?) "
+                "ON CONFLICT(group_id, user_id) DO UPDATE SET nickname=excluded.nickname",
+                (group_id, user_id, now, nickname or ""),
+            )
+            self._c().commit()
+
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         with self._lock:
             rows = self._c().execute(
@@ -130,18 +141,18 @@ class SQLiteBackend(StorageBackend):
         with self._lock:
             if group_id:
                 rows = self._c().execute(
-                    "SELECT user_id, favor, updated_at, relationship FROM favor "
+                    "SELECT user_id, favor, updated_at, relationship, nickname FROM favor "
                     "WHERE group_id=? ORDER BY updated_at DESC LIMIT ?",
                     (group_id, limit),
                 ).fetchall()
-                recs = [FavorRecord(group_id, r[0], float(r[1]), r[2], r[3] or "") for r in rows]
+                recs = [FavorRecord(group_id, r[0], float(r[1]), r[2], r[3] or "", r[4] or "") for r in rows]
             else:
                 rows = self._c().execute(
-                    "SELECT group_id, user_id, favor, updated_at, relationship FROM favor "
+                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname FROM favor "
                     "ORDER BY updated_at DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
-                recs = [FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "") for r in rows]
+                recs = [FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "", r[5] or "") for r in rows]
         return recs
 
     async def distinct_groups(self) -> list[dict]:
