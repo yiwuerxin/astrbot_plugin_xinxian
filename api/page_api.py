@@ -47,13 +47,9 @@ class PageApi:
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_groups(self):
-        """有变动记录的群列表（供前端群筛选下拉）。"""
+        """有当前好感记录的群列表（含每群人数，供前端群筛选下拉）。"""
         try:
-            rows = await self._storage.query_logs(limit=1000)
-            seen: dict[str, int] = {}
-            for r in rows:
-                seen[r["group_id"]] = seen.get(r["group_id"], 0) + 1
-            groups = [{"group_id": g, "count": c} for g, c in sorted(seen.items())]
+            groups = await self._storage.distinct_groups()
             return jsonify({"success": True, "groups": groups})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
