@@ -24,6 +24,7 @@ class FavorRecord:
     favor: float = 0.0
     updated_at: float = 0.0
     relationship: str = ""
+    nickname: str = ""
 
 
 @dataclass

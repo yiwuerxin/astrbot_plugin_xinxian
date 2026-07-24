@@ -60,6 +60,14 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
     if user_id == str(event.get_self_id() or ""):
         return  # 自己的消息不计
 
+    # 顺手记下昵称（供排行图/WebUI 显示名字）；带内存缓存，未变不写库
+    try:
+        _nick = event.get_sender_name()
+    except Exception:
+        _nick = None
+    if _nick:
+        await deps.favor.touch_nickname(group_id, user_id, _nick)
+
     text = event.message_str or ""
     has_at_bot, is_reply_bot = _chain_flags(event)
 
