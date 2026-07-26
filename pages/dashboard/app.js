@@ -44,11 +44,6 @@ createApp({
     };
     const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定", undo: "撤销" };
     const sourceLabel = (s) => SOURCE_LABEL[s] || s || "-";
-    const fmtMsg = (m) => {
-      const s = (m || "").trim();
-      if (!s) return "-";
-      return s.length > 30 ? s.slice(0, 30) + "…" : s;
-    };
 
     const undoLog = async (r) => {
       if (!confirm(`撤销这条变动？（${fmtDelta(r.delta)}，原因：${r.reason || "-"}）`)) return;
@@ -64,6 +59,10 @@ createApp({
         errorMsg.value = String(e);
       }
     };
+
+    const selectedLog = ref(null);
+    const showDetail = (r) => { selectedLog.value = r; };
+    const closeDetail = () => { selectedLog.value = null; };
 
     const fetchGroups = async () => {
       try {
@@ -144,7 +143,8 @@ createApp({
     return {
       tab, loading, errorMsg, logs, users, visibleUsers, groups,
       filterGroup, filterUser, filterLimit,
-      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel, fmtMsg, undoLog,
+      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel, undoLog,
+      selectedLog, showDetail, closeDetail,
       fetchLogs, fetchUsers, refresh, switchTab,
     };
   },
@@ -215,12 +215,12 @@ createApp({
         <table class="xx-table">
           <thead>
             <tr>
-              <th>时间</th><th>群</th><th>QQ</th><th>增减</th><th>变化</th><th>原因</th><th>来源</th><th>发言</th><th>操作</th>
+              <th>时间</th><th>群</th><th>QQ</th><th>增减</th><th>变化</th><th>原因</th><th>来源</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!logs.length">
-              <td colspan="9" class="xx-empty">{{ loading ? "加载中…" : "暂无记录" }}</td>
+              <td colspan="8" class="xx-empty">{{ loading ? "加载中…" : "暂无记录" }}</td>
             </tr>
             <tr v-for="r in logs" :key="r.id" :class="{ 'xx-reversed': r.reversed }">
               <td class="xx-mono">{{ fmtTime(r.ts) }}</td>
@@ -230,14 +230,38 @@ createApp({
               <td class="xx-mono">{{ fmtNum(r.favor_before) }} → {{ fmtNum(r.favor_after) }}</td>
               <td>{{ r.reason || "-" }}</td>
               <td><span class="xx-tag">{{ sourceLabel(r.source) }}</span></td>
-              <td class="xx-msg" :title="r.message">{{ fmtMsg(r.message) }}</td>
-              <td>
+              <td class="xx-actions">
+                <button class="xx-btn xx-btn-mini" @click="showDetail(r)">详情</button>
                 <span v-if="r.reversed" class="xx-tag xx-muted">已撤销</span>
                 <button v-else class="xx-btn xx-btn-danger" @click="undoLog(r)" :disabled="loading">撤销</button>
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- 变动详情弹窗：完整发言 + AI 原因 -->
+      <div v-if="selectedLog" class="xx-modal" @click.self="closeDetail">
+        <div class="xx-modal-box">
+          <header class="xx-modal-header">
+            <span>变动详情</span>
+            <button class="xx-modal-close" @click="closeDetail">×</button>
+          </header>
+          <div class="xx-modal-meta xx-mono">
+            {{ fmtTime(selectedLog.ts) }} · 群 {{ selectedLog.group_id }} · QQ {{ selectedLog.user_id }}
+            · <span :class="selectedLog.delta > 0 ? 'xx-up' : (selectedLog.delta < 0 ? 'xx-down' : 'xx-zero')">{{ fmtDelta(selectedLog.delta) }}</span>
+            · {{ fmtNum(selectedLog.favor_before) }} → {{ fmtNum(selectedLog.favor_after) }}
+            · <span class="xx-tag">{{ sourceLabel(selectedLog.source) }}</span>
+          </div>
+          <section class="xx-modal-section">
+            <h4>用户发言</h4>
+            <p class="xx-modal-text">{{ selectedLog.message || "（本次变动非评估触发，无发言记录）" }}</p>
+          </section>
+          <section class="xx-modal-section">
+            <h4>AI 原因</h4>
+            <p class="xx-modal-text">{{ selectedLog.reason || "-" }}</p>
+          </section>
+        </div>
       </div>
     </div>
   `,
