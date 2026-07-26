@@ -31,6 +31,7 @@ class PageApi:
         reg(f"/{PLUGIN_NAME}/logs", self.handle_logs, ["GET"], "心弦 好感度变动记录")
         reg(f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表")
         reg(f"/{PLUGIN_NAME}/users", self.handle_users, ["GET"], "心弦 当前好感总览")
+        reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["POST"], "心弦 撤销一次变动")
 
     # ---------------- handlers ----------------
 
@@ -61,5 +62,17 @@ class PageApi:
             limit = max(1, min(int(request.args.get("limit", 500)), 2000))
             users = await self._favor.standings(group_id, limit)
             return jsonify({"success": True, "users": users, "count": len(users)})
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"success": False, "error": str(e)})
+
+    async def handle_undo(self):
+        """撤销一条变动：body {"id": <log_id>}。原流水标记已撤销，追加反向 undo 流水。"""
+        try:
+            body = await request.get_json(silent=True) or {}
+            log_id = int(body.get("id"))
+            rec = await self._favor.undo_log(log_id)
+            return jsonify({"success": True, "favor": rec.favor})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})

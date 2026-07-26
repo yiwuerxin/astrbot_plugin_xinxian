@@ -98,8 +98,12 @@ class StorageBackend(ABC):
         reason: str,
         source: str,
         ts: float,
+        message: str = "",
     ) -> None:
-        """追加一条好感度变动流水（供 WebUI 展示增减大小与原因）。"""
+        """追加一条好感度变动流水（供 WebUI 展示增减大小与原因）。
+
+        message: 触发该次变动的用户发言原文（仅 judge 路径记，其它路径留空）。
+        """
 
     @abstractmethod
     async def query_logs(
@@ -109,7 +113,15 @@ class StorageBackend(ABC):
         limit: int = 200,
         offset: int = 0,
     ) -> list[dict]:
-        """查询变动流水（时间倒序）。每条 dict 含 id/group_id/user_id/delta/favor_before/favor_after/reason/source/ts。"""
+        """查询变动流水（时间倒序）。每条 dict 含 id/group_id/user_id/delta/favor_before/favor_after/reason/source/ts/message/reversed。"""
+
+    @abstractmethod
+    async def get_log(self, log_id: int) -> dict | None:
+        """按 id 取单条变动流水（撤销时读 delta/group/user/reversed）。不存在返回 None。"""
+
+    @abstractmethod
+    async def mark_reversed(self, log_id: int) -> None:
+        """把某条流水标记为已撤销（reversed=1），防重复撤销。"""
 
     @abstractmethod
     async def close(self) -> None:
