@@ -42,8 +42,28 @@ createApp({
       }
       return `${out} (${id})`;
     };
-    const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定" };
+    const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定", undo: "撤销" };
     const sourceLabel = (s) => SOURCE_LABEL[s] || s || "-";
+    const fmtMsg = (m) => {
+      const s = (m || "").trim();
+      if (!s) return "-";
+      return s.length > 30 ? s.slice(0, 30) + "…" : s;
+    };
+
+    const undoLog = async (r) => {
+      if (!confirm(`撤销这条变动？（${fmtDelta(r.delta)}，原因：${r.reason || "-"}）`)) return;
+      errorMsg.value = "";
+      try {
+        const data = await bridge.apiPost("undo", { id: r.id });
+        if (data && data.success === false) {
+          errorMsg.value = data.error || "撤销失败";
+        } else {
+          await fetchLogs();
+        }
+      } catch (e) {
+        errorMsg.value = String(e);
+      }
+    };
 
     const fetchGroups = async () => {
       try {
@@ -124,7 +144,7 @@ createApp({
     return {
       tab, loading, errorMsg, logs, users, visibleUsers, groups,
       filterGroup, filterUser, filterLimit,
-      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel,
+      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel, fmtMsg, undoLog,
       fetchLogs, fetchUsers, refresh, switchTab,
     };
   },
@@ -195,14 +215,14 @@ createApp({
         <table class="xx-table">
           <thead>
             <tr>
-              <th>时间</th><th>群</th><th>QQ</th><th>增减</th><th>变化</th><th>原因</th><th>来源</th>
+              <th>时间</th><th>群</th><th>QQ</th><th>增减</th><th>变化</th><th>原因</th><th>来源</th><th>发言</th><th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!logs.length">
-              <td colspan="7" class="xx-empty">{{ loading ? "加载中…" : "暂无记录" }}</td>
+              <td colspan="9" class="xx-empty">{{ loading ? "加载中…" : "暂无记录" }}</td>
             </tr>
-            <tr v-for="r in logs" :key="r.id">
+            <tr v-for="r in logs" :key="r.id" :class="{ 'xx-reversed': r.reversed }">
               <td class="xx-mono">{{ fmtTime(r.ts) }}</td>
               <td class="xx-mono">{{ r.group_id }}</td>
               <td class="xx-mono">{{ r.user_id }}</td>
@@ -210,6 +230,11 @@ createApp({
               <td class="xx-mono">{{ fmtNum(r.favor_before) }} → {{ fmtNum(r.favor_after) }}</td>
               <td>{{ r.reason || "-" }}</td>
               <td><span class="xx-tag">{{ sourceLabel(r.source) }}</span></td>
+              <td class="xx-msg" :title="r.message">{{ fmtMsg(r.message) }}</td>
+              <td>
+                <span v-if="r.reversed" class="xx-tag xx-muted">已撤销</span>
+                <button v-else class="xx-btn xx-btn-danger" @click="undoLog(r)" :disabled="loading">撤销</button>
+              </td>
             </tr>
           </tbody>
         </table>

@@ -212,12 +212,13 @@ class SQLiteBackend(StorageBackend):
             conn.commit()
 
     async def add_log(
-        self, group_id, user_id, delta, favor_before, favor_after, reason, source, ts
+        self, group_id, user_id, delta, favor_before, favor_after, reason, source, ts,
+        message: str = "",
     ) -> None:
         with self._lock:
             self._c().execute(
-                "INSERT INTO favor_log(group_id, user_id, delta, favor_before, favor_after, reason, source, ts) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO favor_log(group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     group_id,
                     user_id,
@@ -227,6 +228,7 @@ class SQLiteBackend(StorageBackend):
                     reason,
                     source,
                     ts,
+                    (message or ""),
                 ),
             )
             self._c().commit()
@@ -235,7 +237,7 @@ class SQLiteBackend(StorageBackend):
         self, group_id=None, user_id=None, limit=200, offset=0
     ) -> list[dict]:
         sql = (
-            "SELECT id, group_id, user_id, delta, favor_before, favor_after, reason, source, ts "
+            "SELECT id, group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message, reversed "
             "FROM favor_log"
         )
         where: list[str] = []
@@ -263,9 +265,41 @@ class SQLiteBackend(StorageBackend):
                 "reason": r[6],
                 "source": r[7],
                 "ts": r[8],
+                "message": r[9] or "",
+                "reversed": bool(r[10]),
             }
             for r in rows
         ]
+
+    async def get_log(self, log_id: int) -> dict | None:
+        with self._lock:
+            row = self._c().execute(
+                "SELECT id, group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message, reversed "
+                "FROM favor_log WHERE id=?",
+                (int(log_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "group_id": row[1],
+            "user_id": row[2],
+            "delta": float(row[3]),
+            "favor_before": float(row[4]),
+            "favor_after": float(row[5]),
+            "reason": row[6],
+            "source": row[7],
+            "ts": row[8],
+            "message": row[9] or "",
+            "reversed": bool(row[10]),
+        }
+
+    async def mark_reversed(self, log_id: int) -> None:
+        with self._lock:
+            self._c().execute(
+                "UPDATE favor_log SET reversed=1 WHERE id=?", (int(log_id),)
+            )
+            self._c().commit()
 
     async def close(self) -> None:
         with self._lock:

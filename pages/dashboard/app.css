@@ -106,3 +106,21 @@
   color: #fff;
   border-color: #4f46e5;
 }
+.xx-msg {
+  white-space: normal;
+  max-width: 320px;
+  color: #606266;
+  line-height: 1.4;
+}
+.xx-btn-danger {
+  padding: 3px 10px;
+  font-size: 12px;
+  background: #dc2626;
+}
+.xx-btn-danger:disabled { background: #f0c0c0; }
+.xx-muted {
+  background: #f0f1f5;
+  color: #909399;
+}
+.xx-reversed td { opacity: 0.5; }
+.xx-reversed .xx-msg { text-decoration: line-through; }
