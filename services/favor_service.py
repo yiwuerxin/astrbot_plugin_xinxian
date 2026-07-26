@@ -290,6 +290,23 @@ class FavorService:
             )
         return rec
 
+    async def undo_preview(self, log_id: int) -> dict:
+        """预览撤销某条变动的结果（不写库）：返回当前好感与撤销后好感等。"""
+        log = await self._storage.get_log(log_id)
+        if log is None:
+            raise ValueError("记录不存在")
+        if log.get("reversed"):
+            raise ValueError("该变动已撤销")
+        group_id, user_id = log["group_id"], log["user_id"]
+        cur = (await self.get(group_id, user_id)).favor
+        return {
+            "current": cur,
+            "after": round1(cur - float(log["delta"])),
+            "delta": float(log["delta"]),
+            "reason": log.get("reason") or "",
+            "message": log.get("message") or "",
+        }
+
     async def undo_log(self, log_id: int) -> FavorRecord:
         """撤销某条变动：反向 delta 落地（标准 undo，不影响之后的其它变动）。
 

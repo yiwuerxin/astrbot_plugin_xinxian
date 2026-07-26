@@ -145,3 +145,5 @@
   margin: 0; font-size: 14px; line-height: 1.6; color: #1f2329;
   white-space: pre-wrap; word-break: break-word;
 }
+.xx-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.xx-muted-text { color: #909399; font-size: 12px; }
