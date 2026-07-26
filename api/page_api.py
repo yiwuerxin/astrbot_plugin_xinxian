@@ -31,7 +31,7 @@ class PageApi:
         reg(f"/{PLUGIN_NAME}/logs", self.handle_logs, ["GET"], "心弦 好感度变动记录")
         reg(f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表")
         reg(f"/{PLUGIN_NAME}/users", self.handle_users, ["GET"], "心弦 当前好感总览")
-        reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["POST"], "心弦 撤销一次变动")
+        reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["GET"], "心弦 撤销/预览一次变动")
 
     # ---------------- handlers ----------------
 
@@ -66,10 +66,13 @@ class PageApi:
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_undo(self):
-        """撤销一条变动：body {"id": <log_id>}。原流水标记已撤销，追加反向 undo 流水。"""
+        """撤销/预览：?id=<log_id>&dry=1。dry=1 只预览（返回当前/撤销后好感），否则真撤销。"""
         try:
-            body = await request.get_json(silent=True) or {}
-            log_id = int(body.get("id"))
+            log_id = int(request.args.get("id"))
+            dry = (request.args.get("dry") or "").strip() == "1"
+            if dry:
+                info = await self._favor.undo_preview(log_id)
+                return jsonify({"success": True, "preview": info})
             rec = await self._favor.undo_log(log_id)
             return jsonify({"success": True, "favor": rec.favor})
         except ValueError as e:
