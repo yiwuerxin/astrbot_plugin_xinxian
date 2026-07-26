@@ -462,6 +462,23 @@ class TestFavorService:
         asyncio.run(svc.undo_log(undo_id))                       # 撤销 undo = 重做
         assert asyncio.run(svc.get("g1", "u1")).favor == 5
 
+    def test_undo_preview(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, source="api"))
+        log_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
+        info = asyncio.run(svc.undo_preview(log_id))
+        assert info["current"] == 5.0
+        assert info["after"] == 0.0  # 5 - 5
+        assert info["delta"] == 5.0
+        # 预览不写库：好感仍 5，原行未 reversed
+        assert asyncio.run(svc.get("g1", "u1")).favor == 5
+        assert asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["reversed"] is False
+
+    def test_undo_preview_errors(self, tmp_path):
+        svc = _make_service(tmp_path)
+        with pytest.raises(ValueError):
+            asyncio.run(svc.undo_preview(999))  # 不存在
+
 
 # ---------------- 一位小数工具 ----------------
 
