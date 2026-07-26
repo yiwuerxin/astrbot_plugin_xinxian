@@ -168,6 +168,29 @@ class TestInject:
         inj0 = InjectService(LevelTable.from_config(None), "档案：{favor}")
         assert "钉住" not in inj0.build_block(FavorRecord("g", "u", 50), is_master=False)
 
+    def test_block_master_line_default(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        inj = InjectService(LevelTable.from_config(None), "档案：{favor}{master_line}")
+        block = inj.build_block(FavorRecord("g", "u", 50), is_master=True)
+        # 默认措辞要点：身份恒定 + 好感照常涨跌 + 低好感赌气怼 + 称谓替换
+        assert "主人身份恒定" in block
+        assert "赌气" in block
+        assert "你的主人" in block  # {master_title} 替换为默认"主人"
+        # 非主人不出现主人提示
+        assert "主人身份恒定" not in inj.build_block(FavorRecord("g", "u", 50), is_master=False)
+
+    def test_block_master_line_custom(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        inj = InjectService(
+            LevelTable.from_config(None),
+            "档案：{favor}{master_line}",
+            master_prompt="，{master_title}大人请受我一拜",
+        )
+        block = inj.build_block(FavorRecord("g", "u", 50), is_master=True)
+        assert "，主人大人请受我一拜" in block  # {master_title} 替换
+
 
 # ---------------- 好感度增减（内存级 SQLite） ----------------
 
