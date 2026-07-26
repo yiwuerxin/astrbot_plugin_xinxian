@@ -45,11 +45,28 @@ createApp({
     const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定", undo: "撤销" };
     const sourceLabel = (s) => SOURCE_LABEL[s] || s || "-";
 
-    const undoLog = async (r) => {
-      if (!confirm(`撤销这条变动？（${fmtDelta(r.delta)}，原因：${r.reason || "-"}）`)) return;
+    const undoPreview = ref(null);
+    const openUndo = async (r) => {
       errorMsg.value = "";
       try {
-        const data = await bridge.apiPost("undo", { id: r.id });
+        const data = await bridge.apiGet("undo", { id: r.id, dry: "1" });
+        if (data && data.success === false) {
+          errorMsg.value = data.error || "无法撤销";
+          return;
+        }
+        undoPreview.value = { ...(data.preview || {}), id: r.id };
+      } catch (e) {
+        errorMsg.value = String(e);
+      }
+    };
+    const closeUndo = () => { undoPreview.value = null; };
+    const confirmUndo = async () => {
+      const id = undoPreview.value && undoPreview.value.id;
+      undoPreview.value = null;
+      if (id == null) return;
+      errorMsg.value = "";
+      try {
+        const data = await bridge.apiGet("undo", { id });
         if (data && data.success === false) {
           errorMsg.value = data.error || "撤销失败";
         } else {
@@ -143,7 +160,8 @@ createApp({
     return {
       tab, loading, errorMsg, logs, users, visibleUsers, groups,
       filterGroup, filterUser, filterLimit,
-      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel, undoLog,
+      fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel,
+      undoPreview, openUndo, closeUndo, confirmUndo,
       selectedLog, showDetail, closeDetail,
       fetchLogs, fetchUsers, refresh, switchTab,
     };
@@ -233,7 +251,7 @@ createApp({
               <td class="xx-actions">
                 <button class="xx-btn xx-btn-mini" @click="showDetail(r)">详情</button>
                 <span v-if="r.reversed" class="xx-tag xx-muted">已撤销</span>
-                <button v-else class="xx-btn xx-btn-danger" @click="undoLog(r)" :disabled="loading">撤销</button>
+                <button v-else class="xx-btn xx-btn-danger" @click="openUndo(r)" :disabled="loading">撤销</button>
               </td>
             </tr>
           </tbody>
@@ -261,6 +279,27 @@ createApp({
             <h4>AI 原因</h4>
             <p class="xx-modal-text">{{ selectedLog.reason || "-" }}</p>
           </section>
+        </div>
+      </div>
+
+      <!-- 撤销确认弹窗：预览撤销后好感 -->
+      <div v-if="undoPreview" class="xx-modal" @click.self="closeUndo">
+        <div class="xx-modal-box">
+          <header class="xx-modal-header">
+            <span>撤销这条变动？</span>
+            <button class="xx-modal-close" @click="closeUndo">×</button>
+          </header>
+          <section class="xx-modal-section">
+            <p class="xx-modal-text">
+              撤销后好感度：<b class="xx-up" style="font-size:16px">{{ fmtNum(undoPreview.after) }}</b>
+              <span class="xx-muted-text">（当前 {{ fmtNum(undoPreview.current) }}，本次 {{ fmtDelta(undoPreview.delta) }}）</span>
+            </p>
+            <p class="xx-modal-text xx-muted-text">原因：{{ undoPreview.reason || "-" }}</p>
+          </section>
+          <div class="xx-modal-actions">
+            <button class="xx-btn xx-btn-mini" @click="closeUndo">取消</button>
+            <button class="xx-btn xx-btn-danger" @click="confirmUndo">确认撤销</button>
+          </div>
         </div>
       </div>
     </div>
