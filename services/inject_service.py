@@ -14,6 +14,15 @@ from ..core.models import FavorRecord
 from ..core.relationship import RelationshipTable
 
 
+# 主人身份的默认注入提示：身份恒定 + 好感照常涨跌（不豁免）+ 主人各好感段的语气。
+# 用 {master_title} 占位称谓；inject.master_prompt 配置可覆盖整段。
+DEFAULT_MASTER_PROMPT = (
+    "，TA 是你的{master_title}。主人身份恒定，好感度照常涨跌、不豁免——"
+    "对主人，低好感＝赌气、甩脸、敢怼（不是对外人的那种疏离）；"
+    "高好感＝亲昵撒娇"
+)
+
+
 class InjectService:
     """好感度档案注入服务。"""
 
@@ -25,6 +34,7 @@ class InjectService:
         max_favor: float = 100,
         relationships: RelationshipTable | None = None,
         persona_anchor: str = "",
+        master_prompt: str = "",
     ) -> None:
         self._levels = levels
         self._template = template
@@ -32,6 +42,9 @@ class InjectService:
         self._max_favor = max_favor
         self._relationships = relationships
         self._persona_anchor = persona_anchor
+        # 主人提示：留空用默认；用 replace 替换 {master_title}，避免用户自定义文本
+        # 里其他花括号被 .format 误解析。
+        self._master_tpl = (master_prompt or "").strip() or DEFAULT_MASTER_PROMPT
 
     def build_block(
         self,
@@ -48,8 +61,7 @@ class InjectService:
         """
         lv = self._levels.level_of(record.favor)
         master_line = (
-            f"，TA 是你的{self._master_title}"
-            "（最高亲密关系；好感度数值仍如实反映 TA 近期对你的态度）"
+            self._master_tpl.replace("{master_title}", self._master_title)
             if is_master
             else ""
         )
