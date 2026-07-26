@@ -113,6 +113,7 @@ class XinxianPlugin(Star):
             max_favor=max_favor,
             relationships=relationships,
             persona_anchor=persona_anchor,
+            master_prompt=(inject_cfg.get("master_prompt") or "").strip(),
         )
         self._judge = JudgeService(
             context,
