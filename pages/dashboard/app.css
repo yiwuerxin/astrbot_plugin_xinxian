@@ -106,12 +106,8 @@
   color: #fff;
   border-color: #4f46e5;
 }
-.xx-msg {
-  white-space: normal;
-  max-width: 320px;
-  color: #606266;
-  line-height: 1.4;
-}
+.xx-actions { display: flex; gap: 6px; align-items: center; }
+.xx-btn-mini { padding: 3px 10px; font-size: 12px; }
 .xx-btn-danger {
   padding: 3px 10px;
   font-size: 12px;
@@ -123,4 +119,29 @@
   color: #909399;
 }
 .xx-reversed td { opacity: 0.5; }
-.xx-reversed .xx-msg { text-decoration: line-through; }
+.xx-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.xx-modal-box {
+  background: #fff; border-radius: 10px; width: min(560px, 92vw);
+  max-height: 80vh; overflow: auto; padding: 20px 22px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.xx-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 15px; font-weight: 600; margin-bottom: 12px;
+}
+.xx-modal-close {
+  border: none; background: none; font-size: 22px; color: #909399;
+  cursor: pointer; line-height: 1; padding: 0;
+}
+.xx-modal-meta { font-size: 12px; color: #606266; margin-bottom: 14px; }
+.xx-modal-section { margin-bottom: 14px; }
+.xx-modal-section h4 {
+  margin: 0 0 6px; font-size: 13px; color: #606266; font-weight: 600;
+}
+.xx-modal-text {
+  margin: 0; font-size: 14px; line-height: 1.6; color: #1f2329;
+  white-space: pre-wrap; word-break: break-word;
+}
