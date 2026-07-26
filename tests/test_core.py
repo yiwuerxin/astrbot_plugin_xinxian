@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from astrbot_plugin_xinxian.core.decay import effective_favor  # noqa: E402
@@ -382,6 +384,61 @@ class TestFavorService:
         rows = asyncio.run(svc.standings("g1"))
         assert rows[0]["nickname"] == "小明"
 
+    def test_log_records_message(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc._storage.add_log("g1", "u1", 1.0, 0.0, 1.0, "夸", "judge", 0.0, message="你好呀"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert rows[0]["message"] == "你好呀"
+        assert rows[0]["reversed"] is False
+
+    def test_apply_judge_logs_message(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.apply_judge("g1", "u1", 1.5, message="小千你真可爱"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert rows[0]["source"] == "judge"
+        assert rows[0]["message"] == "小千你真可爱"
+
+    def test_apply_judge_message_truncated(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.apply_judge("g1", "u1", 1.0, message="字" * 250))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert len(rows[0]["message"]) == 200
+
+    def test_undo_log_reverses_delta(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, source="api"))
+        log_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
+        rec = asyncio.run(svc.undo_log(log_id))
+        assert rec.favor == 0
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert rows[0]["source"] == "undo"
+        assert rows[0]["delta"] == -5.0
+        assert rows[0]["reason"] == f"撤销#{log_id}"
+        orig = [r for r in rows if r["id"] == log_id][0]
+        assert orig["reversed"] is True
+
+    def test_undo_not_found(self, tmp_path):
+        svc = _make_service(tmp_path)
+        with pytest.raises(ValueError):
+            asyncio.run(svc.undo_log(999))
+
+    def test_undo_already_reversed(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, source="api"))
+        log_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
+        asyncio.run(svc.undo_log(log_id))
+        with pytest.raises(ValueError):
+            asyncio.run(svc.undo_log(log_id))
+
+    def test_undo_then_undo_is_redo(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, source="api"))
+        orig_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
+        asyncio.run(svc.undo_log(orig_id))                       # favor 0
+        undo_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
+        asyncio.run(svc.undo_log(undo_id))                       # 撤销 undo = 重做
+        assert asyncio.run(svc.get("g1", "u1")).favor == 5
+
 
 # ---------------- 一位小数工具 ----------------
 
@@ -517,5 +574,15 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         cols = [c[1] for c in conn.execute("PRAGMA table_info(favor)").fetchall()]
         assert "nickname" in cols
+        conn.close()
+
+    def test_v6_log_columns(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        migrate(conn)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(favor_log)").fetchall()]
+        assert "message" in cols and "reversed" in cols
         conn.close()
 

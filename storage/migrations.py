@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # 版本号 -> 该版本需要执行的 DDL/DML 语句列表
 MIGRATIONS: dict[int, list[str]] = {
@@ -90,6 +90,11 @@ MIGRATIONS: dict[int, list[str]] = {
     # v5：favor 表加 nickname 列（发言时捕获昵称，供排行图/WebUI 显示名字）
     5: [
         "ALTER TABLE favor ADD COLUMN nickname TEXT NOT NULL DEFAULT ''",
+    ],
+    # v6：变动流水加 message（触发发言，仅 judge 路径记）与 reversed（该变动是否已被撤销）
+    6: [
+        "ALTER TABLE favor_log ADD COLUMN message TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE favor_log ADD COLUMN reversed INTEGER NOT NULL DEFAULT 0",
     ],
 }
 

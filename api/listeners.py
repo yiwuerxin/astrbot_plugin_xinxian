@@ -90,6 +90,7 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         change = await deps.favor.apply_judge(
             group_id, user_id, result.delta,
             reason=result.reason or f"judge:{result.attitude}",
+            message=text,
         )
         if change.delta:
             logger.info(

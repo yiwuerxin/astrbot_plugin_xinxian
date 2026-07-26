@@ -186,13 +186,18 @@ class FavorService:
         return total
 
     async def apply_judge(
-        self, group_id: str, user_id: str, delta: float, reason: str = "judge"
+        self, group_id: str, user_id: str, delta: float, reason: str = "judge",
+        *, message: str = "",
     ) -> FavorChange:
-        """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。"""
+        """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。
+
+        message: 触发本次评估的用户发言原文（截断 200 字入库，供 WebUI 核对是否误判）。
+        """
         return await self._apply_one(
             group_id, user_id, delta,
             cooldown_key=None, cooldown_sec=0,
             reason=reason, source="judge",
+            message=(message or "")[:200],
         )
 
     async def change(
@@ -216,6 +221,7 @@ class FavorService:
         cooldown_sec: int,
         reason: str,
         source: str,
+        message: str = "",
     ) -> FavorChange:
         now = time.time()
         # 1. 单事件冷却
@@ -241,7 +247,7 @@ class FavorService:
             await self._storage.add_log(
                 group_id, user_id, real,
                 round1(rec.favor - real), rec.favor,
-                reason, source, now,
+                reason, source, now, message,
             )
         if cooldown_key:
             await self._storage.touch_event(group_id, user_id, cooldown_key, now)
@@ -270,16 +276,39 @@ class FavorService:
 
     # ---------- 管理 ----------
 
-    async def set_favor(self, group_id: str, user_id: str, value: float, source: str = "admin") -> FavorRecord:
+    async def set_favor(
+        self, group_id: str, user_id: str, value: float,
+        source: str = "admin", reason: str = "set",
+    ) -> FavorRecord:
         before = await self.get(group_id, user_id)
         value = round1(max(self.min_favor, min(self.max_favor, float(value))))
         rec = await self._storage.set_value(group_id, user_id, value)
         delta = round1(value - before.favor)
         if delta != 0:
             await self._storage.add_log(
-                group_id, user_id, delta, before.favor, value, "set", source, time.time()
+                group_id, user_id, delta, before.favor, value, reason, source, time.time()
             )
         return rec
+
+    async def undo_log(self, log_id: int) -> FavorRecord:
+        """撤销某条变动：反向 delta 落地（标准 undo，不影响之后的其它变动）。
+
+        原流水标记 reversed=1（防重复撤销），并追加一条 source=undo 的反向流水。
+        撤销一条 undo 行 = 重做原变动（对称）。
+        """
+        log = await self._storage.get_log(log_id)
+        if log is None:
+            raise ValueError("记录不存在")
+        if log.get("reversed"):
+            raise ValueError("该变动已撤销")
+        group_id, user_id = log["group_id"], log["user_id"]
+        cur = (await self.get(group_id, user_id)).favor
+        target = round1(cur - float(log["delta"]))
+        await self.set_favor(
+            group_id, user_id, target, source="undo", reason=f"撤销#{log_id}",
+        )
+        await self._storage.mark_reversed(log_id)
+        return await self.get(group_id, user_id)
 
     async def reset(self, group_id: str, user_id: str | None = None) -> None:
         await self._storage.reset(group_id, user_id)
