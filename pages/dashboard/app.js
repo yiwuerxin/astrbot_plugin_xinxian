@@ -45,6 +45,32 @@ createApp({
     const SOURCE_LABEL = { rule: "规则", judge: "评估", admin: "管理员", tool: "工具", api: "API", set: "设定", undo: "撤销" };
     const sourceLabel = (s) => SOURCE_LABEL[s] || s || "-";
 
+    // 七级好感色温轴：冷蓝紫(厌恶) → 灰 → 玫瑰 → 绯红(挚爱)，与排行图千咲配色同源
+    const LEVEL_COLORS = {
+      "厌恶": "#5563b5",
+      "陌生": "#8f8a96",
+      "认识": "#9e7fa8",
+      "友好": "#b96b84",
+      "亲密": "#cd5067",
+      "挚友": "#ac2432",
+      "挚爱": "#7f1220",
+    };
+    const levelColor = (level) => LEVEL_COLORS[level] || "#8f8a96";
+    const levelChipStyle = (level) => {
+      const c = levelColor(level);
+      return { color: c, background: c + "14", borderColor: c + "38" };
+    };
+    // 好感度色温条：中线为原点，正值向右(暖)、负值向左(冷)，满刻度 ±100
+    const barStyle = (u) => {
+      const v = Number(u.favor || 0);
+      const w = Math.min(Math.abs(v), 100) / 2;
+      return {
+        width: w + "%",
+        background: levelColor(u.level),
+        ...(v >= 0 ? { left: "50%" } : { right: "50%" }),
+      };
+    };
+
     const undoPreview = ref(null);
     const openUndo = async (r) => {
       errorMsg.value = "";
@@ -161,6 +187,7 @@ createApp({
       tab, loading, errorMsg, logs, users, visibleUsers, groups,
       filterGroup, filterUser, filterLimit,
       fmtTime, fmtNum, fmtDelta, fmtIdle, fmtUser, sourceLabel,
+      levelColor, levelChipStyle, barStyle,
       undoPreview, openUndo, closeUndo, confirmUndo,
       selectedLog, showDetail, closeDetail,
       fetchLogs, fetchUsers, refresh, switchTab,
@@ -169,12 +196,16 @@ createApp({
   template: `
     <div class="xx-page">
       <header class="xx-header">
-        <h2>心弦 · 好感度面板</h2>
+        <div class="xx-title">
+          <h2>心弦 · 好感度面板</h2>
+          <p class="xx-sub">小千对每位群友的心意起伏 · 冷暖和远近，一目了然</p>
+        </div>
         <nav class="xx-tabs">
           <button class="xx-tab" :class="{ active: tab === 'users' }" @click="switchTab('users')">当前总览</button>
           <button class="xx-tab" :class="{ active: tab === 'logs' }" @click="switchTab('logs')">变动流水</button>
         </nav>
       </header>
+      <div class="xx-string"></div>
 
       <div class="xx-filters">
         <select v-model="filterGroup" @change="refresh">
@@ -211,11 +242,16 @@ createApp({
             <tr v-for="u in visibleUsers" :key="u.group_id + '_' + u.user_id">
               <td class="xx-mono">{{ u.group_id }}</td>
               <td class="xx-mono">{{ fmtUser(u) }}</td>
-              <td class="xx-mono">
-                {{ fmtNum(u.favor) }}
-                <span v-if="u.decayed" class="xx-tag" :title="'原 ' + fmtNum(u.stored_favor)">衰减</span>
+              <td>
+                <div class="xx-favor">
+                  <div class="xx-favor-top">
+                    <span class="xx-favor-num" :style="{ color: levelColor(u.level) }">{{ fmtNum(u.favor) }}</span>
+                    <span v-if="u.decayed" class="xx-tag" :title="'原 ' + fmtNum(u.stored_favor)">衰减</span>
+                  </div>
+                  <div class="xx-favor-bar"><i :style="barStyle(u)"></i></div>
+                </div>
               </td>
-              <td>{{ u.level }}</td>
+              <td><span class="xx-level-chip" :style="levelChipStyle(u.level)"><i></i>{{ u.level }}</span></td>
               <td>{{ u.relationship || "-" }}</td>
               <td class="xx-mono">{{ fmtIdle(u.idle_days) }}</td>
               <td>
@@ -251,7 +287,7 @@ createApp({
               <td class="xx-actions">
                 <button class="xx-btn xx-btn-mini" @click="showDetail(r)">详情</button>
                 <span v-if="r.reversed" class="xx-tag xx-muted">已撤销</span>
-                <button v-else class="xx-btn xx-btn-danger" @click="openUndo(r)" :disabled="loading">撤销</button>
+                <button v-else class="xx-btn xx-btn-undo" @click="openUndo(r)" :disabled="loading">撤销</button>
               </td>
             </tr>
           </tbody>

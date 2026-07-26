@@ -1,56 +1,207 @@
-.xx-page {
-  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #1f2329;
-  padding: 16px 20px 40px;
+/* 心弦好感度 dashboard —— 千咲配色（绯红 × 近黑紫）浅色版
+   色温轴：厌恶(冷蓝紫) → 陌生(灰) → … → 挚爱(深绯)，数值涨跌同语义 */
+
+:root {
+  --xx-ink: #2a2530;          /* 正文墨色（带紫调的黑） */
+  --xx-ink-2: #6f6875;        /* 次级文字 */
+  --xx-ink-3: #98919e;        /* 弱化文字 */
+  --xx-bg: #fbf9fa;           /* 页面底：近白微紫 */
+  --xx-card: #ffffff;
+  --xx-line: #ece5ea;         /* 细分隔线 */
+  --xx-line-2: #ddd4dc;       /* 控件边框 */
+  --xx-accent: #ac2432;       /* 千咲红：主交互色 */
+  --xx-accent-deep: #8e1626;
+  --xx-accent-soft: #f8ecee;  /* 绯红浅底 */
+  --xx-cold: #5563b5;         /* 疏远冷色（负向） */
+  --xx-cold-soft: #eef0fa;
+  --xx-warm: #b02a3c;         /* 亲近暖色（正向） */
+  --xx-radius: 10px;
+  --xx-shadow: 0 1px 2px rgba(42, 37, 48, 0.04), 0 4px 16px rgba(42, 37, 48, 0.06);
 }
+
+.xx-page {
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--xx-ink);
+  background: var(--xx-bg);
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 20px 24px 48px;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+.xx-page *, .xx-page *::before, .xx-page *::after { box-sizing: border-box; }
+
+/* ---------- 头部：标题 + 分段切换 + 弦线 ---------- */
 .xx-header {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
-.xx-header h2 {
+.xx-title h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
+.xx-title h2::before {
+  content: "";
+  display: inline-block;
+  width: 8px; height: 8px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--xx-accent);
+  box-shadow: 0 0 0 3px var(--xx-accent-soft);
+  vertical-align: 2px;
+}
+.xx-sub {
+  margin: 4px 0 0 17px;
+  font-size: 12px;
+  color: var(--xx-ink-3);
+}
+/* 弦线：冷→暖渐变，呼应好感色温轴 */
+.xx-string {
+  height: 2px;
+  border-radius: 2px;
+  margin: 0 0 16px;
+  background: linear-gradient(90deg,
+    #5563b5 0%, #8f8a96 30%, #c98a96 55%, #ac2432 80%, #7f1220 100%);
+  opacity: 0.55;
+}
+
+/* ---------- 分段 tab ---------- */
+.xx-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: #f0ebef;
+  border-radius: 9px;
+}
+.xx-tab {
+  padding: 5px 16px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--xx-ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.xx-tab:hover { color: var(--xx-ink); }
+.xx-tab.active {
+  background: #fff;
+  color: var(--xx-accent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(42, 37, 48, 0.12);
+}
+
+/* ---------- 筛选栏 ---------- */
 .xx-filters {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-bottom: 14px;
 }
 .xx-filters select,
 .xx-input {
-  padding: 6px 10px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  background: #fff;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--xx-line-2);
+  border-radius: 8px;
+  background: var(--xx-card);
+  color: var(--xx-ink);
   font-size: 13px;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.xx-input { width: 150px; }
+.xx-filters select:hover, .xx-input:hover { border-color: #c9bcc6; }
+.xx-filters select:focus, .xx-input:focus {
+  border-color: var(--xx-accent);
+  box-shadow: 0 0 0 3px rgba(172, 36, 50, 0.10);
+}
+.xx-input { width: 160px; }
+.xx-input::placeholder { color: var(--xx-ink-3); }
+
+/* ---------- 按钮 ---------- */
 .xx-btn {
-  padding: 6px 14px;
+  height: 32px;
+  padding: 0 16px;
   border: none;
-  border-radius: 6px;
-  background: #4f46e5;
+  border-radius: 8px;
+  background: var(--xx-accent);
   color: #fff;
   font-size: 13px;
   cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
 }
-.xx-btn:disabled { opacity: 0.6; cursor: default; }
+.xx-btn:hover:not(:disabled) { background: var(--xx-accent-deep); }
+.xx-btn:disabled { opacity: 0.55; cursor: default; }
+
+.xx-btn-mini {
+  height: auto;
+  padding: 3px 12px;
+  font-size: 12px;
+  background: #fff;
+  color: var(--xx-ink-2);
+  border: 1px solid var(--xx-line-2);
+}
+.xx-btn-mini:hover:not(:disabled) {
+  background: var(--xx-bg);
+  color: var(--xx-ink);
+  border-color: #c9bcc6;
+}
+/* 行内撤销：描边深色，hover 实心；弹窗确认撤销保持实心 */
+.xx-btn-undo {
+  height: auto;
+  padding: 3px 12px;
+  font-size: 12px;
+  background: #fff;
+  color: var(--xx-ink);
+  border: 1px solid var(--xx-line-2);
+}
+.xx-btn-undo:hover:not(:disabled) {
+  background: var(--xx-ink);
+  border-color: var(--xx-ink);
+  color: #fff;
+}
+.xx-btn-undo:disabled { color: #b7b0bc; background: #f5f2f5; }
+/* 危险确认：近黑紫实心（黑发色），与绯红主操作区分 */
+.xx-btn-danger {
+  height: auto;
+  padding: 3px 12px;
+  font-size: 12px;
+  background: var(--xx-ink);
+}
+.xx-btn-danger:hover:not(:disabled) { background: #453d4f; }
+.xx-btn-danger:disabled { background: #b7b0bc; }
+
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--xx-accent);
+  outline-offset: 1px;
+}
+
+/* ---------- 错误提示 ---------- */
 .xx-error {
-  color: #c0392b;
-  background: #fdecea;
-  padding: 8px 12px;
-  border-radius: 6px;
+  color: var(--xx-accent-deep);
+  background: var(--xx-accent-soft);
+  border-left: 3px solid var(--xx-accent);
+  padding: 9px 12px;
+  border-radius: 8px;
   margin: 0 0 12px;
   font-size: 13px;
 }
-.xx-table-wrap { overflow-x: auto; }
+
+/* ---------- 表格卡片 ---------- */
+.xx-table-wrap {
+  overflow-x: auto;
+  background: var(--xx-card);
+  border: 1px solid var(--xx-line);
+  border-radius: var(--xx-radius);
+  box-shadow: var(--xx-shadow);
+}
 .xx-table {
   width: 100%;
   border-collapse: collapse;
@@ -58,92 +209,170 @@
 }
 .xx-table th,
 .xx-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid #ebeef5;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--xx-line);
   text-align: left;
   white-space: nowrap;
 }
 .xx-table th {
-  background: #f5f7fa;
+  background: #faf7f9;
   font-weight: 600;
-  color: #606266;
+  font-size: 12px;
+  color: var(--xx-ink-2);
+  letter-spacing: 0.3px;
   position: sticky;
   top: 0;
+  z-index: 1;
 }
-.xx-table tbody tr:hover { background: #fafbff; }
-.xx-mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; }
-.xx-up { color: #16a34a; font-weight: 600; }
-.xx-down { color: #dc2626; font-weight: 600; }
-.xx-zero { color: #909399; }
+.xx-table tbody tr:last-child td { border-bottom: none; }
+.xx-table tbody tr { transition: background 0.12s; }
+.xx-table tbody tr:hover { background: #fbf5f6; }
+
+.xx-mono {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 涨跌：语义色温（暖=靠近，冷=疏远） ---------- */
+.xx-up { color: var(--xx-warm); font-weight: 700; }
+.xx-down { color: var(--xx-cold); font-weight: 700; }
+.xx-zero { color: var(--xx-ink-3); }
+
+/* ---------- 好感度色温条：中线为原点，右暖左冷 ---------- */
+.xx-favor { display: flex; flex-direction: column; gap: 4px; }
+.xx-favor-top { display: flex; align-items: center; gap: 6px; }
+.xx-favor-num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.xx-favor-bar {
+  position: relative;
+  width: 76px;
+  height: 5px;
+  border-radius: 3px;
+  background: #efe9ed;
+}
+.xx-favor-bar::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: -1px; bottom: -1px;
+  width: 1px;
+  background: #d5cbd2;
+}
+.xx-favor-bar i {
+  position: absolute;
+  top: 0; bottom: 0;
+  border-radius: 3px;
+}
+
+/* ---------- 等级 chip（颜色由 JS 按色温轴注入） ---------- */
+.xx-level-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 600;
+}
+.xx-level-chip i {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ---------- 通用 tag（中性） ---------- */
 .xx-tag {
   display: inline-block;
   padding: 1px 8px;
-  border-radius: 10px;
-  background: #eef2ff;
-  color: #4f46e5;
+  border-radius: 20px;
+  background: #f1ecf1;
+  color: var(--xx-ink-2);
   font-size: 12px;
 }
+.xx-muted { background: #f0f1f5; color: #909399; }
+
 .xx-empty {
   text-align: center;
-  color: #909399;
-  padding: 28px 0;
-}
-.xx-tabs {
-  display: flex;
-  gap: 4px;
-}
-.xx-tab {
-  padding: 6px 14px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  background: #fff;
-  color: #606266;
+  color: var(--xx-ink-3);
+  padding: 36px 0 !important;
   font-size: 13px;
-  cursor: pointer;
 }
-.xx-tab.active {
-  background: #4f46e5;
-  color: #fff;
-  border-color: #4f46e5;
-}
+
 .xx-actions { display: flex; gap: 6px; align-items: center; }
-.xx-btn-mini { padding: 3px 10px; font-size: 12px; }
-.xx-btn-danger {
-  padding: 3px 10px;
-  font-size: 12px;
-  background: #dc2626;
-}
-.xx-btn-danger:disabled { background: #f0c0c0; }
-.xx-muted {
-  background: #f0f1f5;
-  color: #909399;
-}
-.xx-reversed td { opacity: 0.5; }
+.xx-reversed td { opacity: 0.45; }
+
+/* ---------- 弹窗 ---------- */
 .xx-modal {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
+  position: fixed; inset: 0;
+  background: rgba(42, 37, 48, 0.40);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
 }
 .xx-modal-box {
-  background: #fff; border-radius: 10px; width: min(560px, 92vw);
-  max-height: 80vh; overflow: auto; padding: 20px 22px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  background: #fff;
+  border-radius: 14px;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 22px 24px;
+  box-shadow: 0 12px 48px rgba(42, 37, 48, 0.28);
 }
 .xx-modal-header {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 15px; font-weight: 600; margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  padding-left: 10px;
+  border-left: 3px solid var(--xx-accent);
 }
 .xx-modal-close {
-  border: none; background: none; font-size: 22px; color: #909399;
-  cursor: pointer; line-height: 1; padding: 0;
+  border: none;
+  background: none;
+  font-size: 22px;
+  color: var(--xx-ink-3);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 6px;
+  transition: color 0.15s;
 }
-.xx-modal-meta { font-size: 12px; color: #606266; margin-bottom: 14px; }
+.xx-modal-close:hover { color: var(--xx-ink); }
+.xx-modal-meta {
+  font-size: 12px;
+  color: var(--xx-ink-2);
+  margin-bottom: 16px;
+  padding: 8px 10px;
+  background: var(--xx-bg);
+  border-radius: 8px;
+}
 .xx-modal-section { margin-bottom: 14px; }
 .xx-modal-section h4 {
-  margin: 0 0 6px; font-size: 13px; color: #606266; font-weight: 600;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--xx-ink-3);
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 .xx-modal-text {
-  margin: 0; font-size: 14px; line-height: 1.6; color: #1f2329;
-  white-space: pre-wrap; word-break: break-word;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--xx-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.xx-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.xx-muted-text { color: #909399; font-size: 12px; }
+.xx-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.xx-muted-text { color: var(--xx-ink-3); font-size: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .xx-page * { transition: none !important; }
+}
