@@ -54,6 +54,12 @@ class StorageBackend(ABC):
         """更新成员昵称（不改好感数值）；发言时捕获，供排行图/WebUI 显示名字。"""
 
     @abstractmethod
+    async def set_impression(
+        self, group_id: str, user_id: str, impression: str, tags: list[str]
+    ) -> None:
+        """写入成员印象与标签（不改好感数值）。tags 为展示顺序已定的标签列表。"""
+
+    @abstractmethod
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         """群内好感度排行（降序）。"""
 

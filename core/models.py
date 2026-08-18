@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 
@@ -25,6 +26,19 @@ class FavorRecord:
     updated_at: float = 0.0
     relationship: str = ""
     nickname: str = ""
+    impression: str = ""
+    tags: str = ""          # JSON 数组字符串（如 '["毒舌","夜猫子"]'）
+    impression_at: float = 0.0
+
+    def parsed_tags(self) -> list[str]:
+        """tags JSON 字符串 → 标签列表；损坏/空返回 []。"""
+        if not self.tags:
+            return []
+        try:
+            v = json.loads(self.tags)
+            return [str(t) for t in v] if isinstance(v, list) else []
+        except Exception:
+            return []
 
 
 @dataclass
