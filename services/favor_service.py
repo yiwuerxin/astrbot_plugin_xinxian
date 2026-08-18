@@ -36,8 +36,9 @@ class FavorService:
         daily_cap_down: float = 15,
         master_ids: list[str] | tuple[str, ...] = (),
         decay_enabled: bool = False,
-        decay_per_day: float = 1.0,
-        decay_grace_days: float = 3,
+        half_life_base: float = 10.0,
+        half_life_growth: float = 1.3,
+        half_life_max: float = 60.0,
         decay_baseline: float = 0.0,
         relationships: RelationshipTable | None = None,
         economy: EconomyConfig | None = None,
@@ -51,8 +52,9 @@ class FavorService:
         self.daily_cap_up = daily_cap_up
         self.daily_cap_down = daily_cap_down
         self._master_ids = list(master_ids)
+        # 指数遗忘衰减参数：(半衰期基准, 巩固增长系数, 半衰期上限, 基线)
         self._decay = (
-            (float(decay_per_day), float(decay_grace_days), float(decay_baseline))
+            (float(half_life_base), float(half_life_growth), float(half_life_max), float(decay_baseline))
             if decay_enabled
             else None
         )
@@ -64,14 +66,18 @@ class FavorService:
 
     # ---------- 查询 ----------
 
-    def _effective(self, stored: float, updated_at: float) -> float:
-        """读取时的有效好感度（启用衰减时按时间向基线靠拢）。"""
+    def _effective(self, stored: float, updated_at: float, half_life: float = 10.0) -> float:
+        """读取时的有效好感度（启用衰减时按指数遗忘曲线向基线收敛）。
+
+        half_life 取自该成员记录（正互动巩固过的老朋友衰减更慢）。
+        """
         if self._decay is None:
             return round1(stored)
-        per_day, grace_days, baseline = self._decay
+        base, _growth, _h_max, baseline = self._decay
         return effective_favor(
             stored, updated_at, time.time(),
-            per_day=per_day, grace_days=grace_days, baseline=baseline,
+            half_life=(half_life if half_life and half_life > 0 else base),
+            baseline=baseline,
         )
 
     async def get(self, group_id: str, user_id: str) -> FavorRecord:
@@ -83,13 +89,13 @@ class FavorService:
                 favor=self.default_favor, updated_at=0.0,
             )
         else:
-            rec.favor = self._effective(rec.favor, rec.updated_at)
+            rec.favor = self._effective(rec.favor, rec.updated_at, rec.half_life)
         return rec
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         rows = await self._storage.ranking(group_id, limit)
         for r in rows:
-            r.favor = self._effective(r.favor, r.updated_at)
+            r.favor = self._effective(r.favor, r.updated_at, getattr(r, "half_life", 10.0))
         rows.sort(key=lambda r: r.favor, reverse=True)
         return rows
 
@@ -99,7 +105,7 @@ class FavorService:
         now = time.time()
         out: list[dict] = []
         for r in recs:
-            eff = self._effective(r.favor, r.updated_at)
+            eff = self._effective(r.favor, r.updated_at, r.half_life)
             idle = int((now - r.updated_at) // 86400) if r.updated_at > 0 else None
             out.append({
                 "group_id": r.group_id,

@@ -102,12 +102,13 @@
   },
   "decay": {
     "type": "object",
-    "description": "时间衰减：久不互动，好感度向基线慢慢靠拢（像真人久不联系就淡了）",
+    "description": "时间衰减（真人记忆规律）：好感度按指数遗忘曲线连续向基线收敛——常聊天的人衰减慢（每次正向互动巩固半衰期），久不聊天衰减快。依据艾宾浩斯遗忘曲线 + SM-2 间隔巩固",
     "items": {
-      "enabled": { "type": "bool", "default": false, "description": "总开关" },
-      "per_day": { "type": "float", "default": 1.0, "description": "超过宽限期后，每天向基线靠拢的量（支持一位小数）" },
-      "grace_days": { "type": "int", "default": 3, "description": "宽限天数；idle 不超过此值不衰减" },
-      "baseline": { "type": "float", "default": 0, "description": "衰减基线（好感向此值靠拢，不会越过）" }
+      "enabled": { "type": "bool", "default": false, "description": "总开关。开启后所有人都连续衰减（速率由各自半衰期决定），不再是\"只有闲置才掉分\"" },
+      "baseline": { "type": "float", "default": 0, "description": "衰减基线（好感向此值收敛，不会越过）" },
+      "half_life_base": { "type": "float", "default": 10, "description": "新关系初始半衰期（天）：存量距离每天约损 6.6%。halved=降到一半所需天数" },
+      "half_life_growth": { "type": "float", "default": 1.3, "description": "每次正向互动的巩固系数：半衰期 ×该值（SM-2 温和版）。1=不巩固" },
+      "half_life_max": { "type": "float", "default": 60, "description": "半衰期上限（天）：每天聊的老朋友每天约损 1.1%——连续但极慢，老交情抗衰减" }
     }
   },
   "economy": {
