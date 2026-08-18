@@ -28,24 +28,34 @@ astrbot_plugin_xinxian/
 ├── core/                    # 领域核心层（纯 Python，不依赖 AstrBot，可单测）
 │   ├── models.py            #   数据模型：FavorRecord / LevelDef / FavorChange
 │   ├── levels.py            #   等级表：七级阈值（含厌恶负值区间）与态度指引，可配置
-│   ├── events.py            #   事件类型与规则匹配器
 │   ├── decimal.py           #   一位小数精度工具（round1 收敛 / fmt 显示）
-│   └── identity.py          #   主人判定（只认 QQ 号）
+│   ├── decay.py             #   真人记忆式衰减：指数遗忘曲线 + 互动巩固半衰期
+│   ├── identity.py          #   主人判定（只认 QQ 号）
+│   ├── relationship.py      #   关系类型（与好感数值正交的角色标签）
+│   ├── judge_parse.py       #   评审输出解析（五档+自由分值，证据门槛，旧格式兼容）
+│   ├── judge_prompt.py      #   评审提示词渲染（人格名/人设摘要/花名册占位符）
+│   ├── judge_context.py     #   会话历史文本提取（4.26 结构化消息兼容）
+│   ├── level_economy.py     #   防通胀经济学（噪声地板/负面权重/阶段乘数/同日衰减）
+│   └── impression.py        #   成员印象与标签（汇总提示/解析/统计标签）
 ├── storage/                 # 持久化层
 │   ├── base.py              #   StorageBackend 抽象接口（换后端只动这里）
 │   ├── sqlite_backend.py    #   SQLite 实现（WAL + 全局锁，锁内读-改-写）
-│   └── migrations.py        #   schema 版本迁移（PRAGMA user_version）
+│   ├── migrations.py        #   schema 版本迁移（PRAGMA user_version，当前 v8）
+│   └── pragma_version.py    #   user_version 白名单写入（PRAGMA 无法参数化）
 ├── services/                # 应用服务层
-│   ├── favor_service.py     #   增减/查询/防刷（唯一数值入口）
+│   ├── favor_service.py     #   增减/查询/防刷/印象刷新（唯一数值入口）
 │   ├── judge_service.py     #   LLM 情绪评估（静默降级，任何失败不影响对话）
 │   └── inject_service.py    #   好感度档案注入（只追加不覆盖）
 ├── api/                     # 对外接口层（纯 handler 函数）
 │   ├── facade.py            #   XinxianFacade：跨插件稳定 API
 │   ├── llm_tools.py         #   LLM 工具逻辑
 │   ├── commands.py          #   聊天指令逻辑
-│   └── listeners.py         #   群消息监听与注入逻辑
+│   ├── listeners.py         #   群消息监听与注入逻辑
+│   ├── rank_image.py        #   排行图渲染（PIL，千咲配色）
+│   └── page_api.py          #   WebUI 面板后端 API（注册到 AstrBot 主面板）
+├── pages/dashboard/         # WebUI 前端（Vue3：总览/流水/成员详情弹窗）
 ├── resources/prompts/       # 提示词模板（注入模板、评估模板，可自行修改）
-└── tests/test_core.py       # 核心层单元测试（29 个用例，含负值/小数/迁移）
+└── tests/test_core.py       # 核心层单元测试（125 个用例：等级/评审解析/经济学/印象/迁移/衰减）
 ```
 
 模块依赖单向：`api → services → core/storage`，`core` 不依赖任何外层，低耦合高内聚。
@@ -108,7 +118,7 @@ API 承诺向后兼容：只增不改。
 
 ```bash
 pip install pytest
-pytest tests/ -v    # 18 个核心层用例，不依赖 AstrBot 环境
+pytest tests/ -v    # 125 个核心层用例，不依赖 AstrBot 环境
 ```
 
 **扩展指南**
