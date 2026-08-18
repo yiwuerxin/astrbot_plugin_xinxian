@@ -46,6 +46,16 @@ class InjectService:
         # 里其他花括号被 .format 误解析。
         self._master_tpl = (master_prompt or "").strip() or DEFAULT_MASTER_PROMPT
 
+    @staticmethod
+    def _format_impression(record: FavorRecord) -> str:
+        """把成员印象+标签渲染为「TA 给你的印象」段；无印象返回空串（模板里自然消失）。"""
+        imp = (record.impression or "").strip()
+        if not imp:
+            return ""
+        tags = record.parsed_tags()
+        tag_line = f"（标签：{'、'.join(tags)}）" if tags else ""
+        return f"\n- TA 给你的印象：{imp}{tag_line}"
+
     def build_block(
         self,
         record: FavorRecord,
@@ -67,6 +77,7 @@ class InjectService:
         )
         events_block = self._format_events(recent_events or [])
         relationship_block = self._format_relationship(record.relationship)
+        impression_block = self._format_impression(record)
         block = self._template.format(
             nickname=nickname or "对方",
             user_id=record.user_id,
@@ -77,6 +88,7 @@ class InjectService:
             level_guidance=lv.guidance,
             recent_events=events_block,
             relationship=relationship_block,
+            impression=impression_block,
         )
         if self._persona_anchor:
             block += "\n" + self._persona_anchor

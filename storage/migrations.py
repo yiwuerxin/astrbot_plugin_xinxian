@@ -10,7 +10,7 @@ import sqlite3
 
 from .pragma_version import set_user_version
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 # 版本号 -> 该版本需要执行的 DDL/DML 语句列表
@@ -98,6 +98,12 @@ MIGRATIONS: dict[int, list[str]] = {
     6: [
         "ALTER TABLE favor_log ADD COLUMN message TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE favor_log ADD COLUMN reversed INTEGER NOT NULL DEFAULT 0",
+    ],
+    # v7：favor 表加成员印象三列（impression 摘要 / tags JSON 数组字符串 / impression_at 生成时间）
+    7: [
+        "ALTER TABLE favor ADD COLUMN impression TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE favor ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE favor ADD COLUMN impression_at REAL NOT NULL DEFAULT 0",
     ],
 }
 

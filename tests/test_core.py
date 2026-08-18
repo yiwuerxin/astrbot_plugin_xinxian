@@ -600,6 +600,73 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert "message" in cols and "reversed" in cols
         conn.close()
 
+    def test_v7_impression_columns(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        migrate(conn)
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(favor)").fetchall()]
+        assert "impression" in cols and "tags" in cols and "impression_at" in cols
+        conn.close()
+
+    def test_v6_to_v7_upgrade_round_trip(self, tmp_path):
+        # 旧库（v6）升级到 v7：数据不丢，新列可用
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "old.db"))
+        conn.execute("PRAGMA user_version(6)")
+        # 构造 v6 结构的最小表（仅 favor）——真实库由 v1..v6 迁移生成
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS favor ("
+            "group_id TEXT NOT NULL, user_id TEXT NOT NULL, favor REAL NOT NULL DEFAULT 0,"
+            "updated_at REAL NOT NULL, relationship TEXT NOT NULL DEFAULT '',"
+            "nickname TEXT NOT NULL DEFAULT '', PRIMARY KEY (group_id, user_id))"
+        )
+        conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u',5.5,1)")
+        conn.commit()
+        migrate(conn)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        row = conn.execute("SELECT favor, impression FROM favor WHERE group_id='g' AND user_id='u'").fetchone()
+        assert row[0] == 5.5 and row[1] == ""
+        conn.close()
+
+
+# ---------------- 印象落库与读取 ----------------
+
+class TestImpressionStorage:
+    def _backend(self, tmp_path):
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        return b
+
+    def test_set_and_read_impression(self, tmp_path):
+        b = self._backend(tmp_path)
+        asyncio.run(b.set_impression("g", "u", "嘴硬心软", ["毒舌", "夜猫子"]))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.impression == "嘴硬心软"
+        assert rec.parsed_tags() == ["毒舌", "夜猫子"]
+        assert rec.impression_at > 0
+
+    def test_set_tags_only_keeps_impression(self, tmp_path):
+        # set_tags 走 set_impression（同列存储），手动改标签不丢印象
+        b = self._backend(tmp_path)
+        asyncio.run(b.set_impression("g", "u", "旧印象", ["a"]))
+        from astrbot_plugin_xinxian.services.favor_service import FavorService
+
+        svc = FavorService(b, LevelTable.from_config(None))
+        asyncio.run(svc.set_tags("g", "u", ["手改"]))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.impression == "旧印象" and rec.parsed_tags() == ["手改"]
+
+    def test_standalone_include_impression(self, tmp_path):
+        b = self._backend(tmp_path)
+        asyncio.run(b.set_impression("g", "u", "测试印象", ["x"]))
+        rows = asyncio.run(FavorService(
+            b, LevelTable.from_config(None)
+        ).standings("g"))
+        assert rows and rows[0]["impression"] == "测试印象"
+        assert rows[0]["tags"] == ["x"]
+
 
 # ---------------- 评估提示词渲染（随人格同步） ----------------
 
@@ -636,6 +703,134 @@ class TestJudgePromptRender:
         assert self.persona_block("高冷") == "（人设摘要，供理解语境）：\n高冷\n\n"
         assert self.persona_block("") == ""
         assert self.persona_block("  ") == ""
+
+
+# ---------------- 会话历史文本提取（上下文修复） ----------------
+
+class TestJudgeContext:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.judge_context import extract_history_text
+
+        self.extract = extract_history_text
+
+    def test_string_passthrough(self):
+        assert self.extract(" 你好 ") == "你好"
+
+    def test_list_extracts_text_only(self):
+        # AstrBot 4.26 assistant 真实格式：think + text 混合列表
+        content = [
+            {"type": "think", "think": "内心活动不应进入评审"},
+            {"type": "text", "text": "？谁是你主人，别乱攀亲戚"},
+        ]
+        assert self.extract(content) == "？谁是你主人，别乱攀亲戚"
+
+    def test_list_user_message(self):
+        # 4.26 部分 user 消息也是列表
+        content = [{"type": "text", "text": "[发送时间: …]\n另外一个人是什么鬼"}]
+        assert "另外一个人是什么鬼" in self.extract(content)
+
+    def test_multiple_text_segments_joined(self):
+        content = [
+            {"type": "text", "text": "第一段"},
+            {"type": "image", "url": "http://x"},
+            {"type": "text", "text": "第二段"},
+        ]
+        assert self.extract(content) == "第一段\n第二段"
+
+    def test_empty_and_garbage(self):
+        assert self.extract("") == ""
+        assert self.extract([]) == ""
+        assert self.extract(None) == ""
+        assert self.extract([{"type": "image"}]) == ""
+        assert self.extract(12345) == ""
+
+
+# ---------------- 花名册渲染 ----------------
+
+class TestRosterRender:
+    def test_roster_block(self):
+        from astrbot_plugin_xinxian.core.judge_prompt import render, roster_block
+
+        assert roster_block("") == ""
+        assert roster_block("  ") == ""
+        r = roster_block("好m=1109841333（主人M的外号）")
+        assert r.startswith("群成员花名册") and "好m=1109841333" in r
+
+    def test_render_with_roster(self):
+        from astrbot_plugin_xinxian.core.judge_prompt import render
+
+        tpl = "评审。{roster}原话：「{text}」"
+        out = render(tpl, text="hi", persona_name="小千", roster="好m=1109841333")
+        assert "花名册" in out and "原话：「hi」" in out
+        # 空花名册：段落自然消失
+        out2 = render(tpl, text="hi", persona_name="小千", roster="")
+        assert "花名册" not in out2
+
+
+# ---------------- 印象与标签 ----------------
+
+class TestImpression:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.impression import (
+            build_summary_prompt, parse_summary, stats_tags,
+        )
+
+        self.stats_tags = stats_tags
+        self.parse_summary = parse_summary
+        self.build_prompt = build_summary_prompt
+
+    def _logs(self, n, deltas, hours=None):
+        out = []
+        for i, d in enumerate(deltas):
+            ts = 1000000000 + i * 60
+            if hours:
+                ts = time.mktime(time.strptime("2026-08-18 %02d:30" % hours[i % len(hours)], "%Y-%m-%d %H:%M"))
+            out.append({"source": "judge", "delta": d, "ts": ts})
+        return out
+
+    def test_stats_tags_regular(self):
+        logs = self._logs(10, [0.5] * 10)
+        assert "常客" in self.stats_tags(logs)
+
+    def test_stats_tags_night_owl(self):
+        logs = self._logs(6, [0.5] * 6, hours=[2, 3, 1, 2, 14, 15])
+        assert "夜猫子" in self.stats_tags(logs)
+
+    def test_stats_tags_warm_and_snarky(self):
+        warm = self._logs(5, [0.8, 0.6, 0.5, 0.8, 0.3])
+        assert "热情" in self.stats_tags(warm)
+        snarky = self._logs(5, [-1.0, -0.8, 0.5, -0.6, -0.9])
+        assert "毒舌" in self.stats_tags(snarky)
+
+    def test_stats_tags_empty(self):
+        assert self.stats_tags([]) == []
+        assert self.stats_tags([{"source": "admin", "delta": 5, "ts": 1}]) == []
+
+    def test_parse_summary_normal(self):
+        r = self.parse_summary("印象:嘴硬心软，爱用外号逗人\n标签:毒舌,夜猫子")
+        assert r == ("嘴硬心软，爱用外号逗人", ["毒舌", "夜猫子"])
+
+    def test_parse_summary_truncates_and_caps(self):
+        r = self.parse_summary("印象:" + "长" * 200 + "\n标签:a,b,c,d,e，,f")
+        assert len(r[0]) == 80 and len(r[1]) == 3
+
+    def test_parse_summary_no_tag_line(self):
+        r = self.parse_summary("印象:只是个路过的人")
+        assert r == ("只是个路过的人", [])
+
+    def test_parse_summary_wu_excluded(self):
+        r = self.parse_summary("印象:神秘\n标签:无")
+        assert r == ("神秘", [])
+
+    def test_parse_summary_failure(self):
+        assert self.parse_summary("我觉得这个人还行") is None
+        assert self.parse_summary("印象:  \n标签:a") is None
+
+    def test_build_prompt_content(self):
+        p = self.build_prompt("M", "旧印象", ["+0.8 喜欢你 —— 直白好感"], "小千")
+        assert "M" in p and "旧印象" in p and "+0.8" in p and "小千" in p
+        p2 = self.build_prompt("M", "", [], "小千")
+        assert "旧印象" not in p2 and "暂无记录" in p2
 
 
 # ---------------- user_version 白名单写入 ----------------

@@ -16,6 +16,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
+from ..core.judge_context import extract_history_text
 from ..core.judge_parse import ParsedJudge, parse as parse_judge
 from ..core.judge_prompt import render
 from ..storage.base import StorageBackend
@@ -51,6 +52,7 @@ class JudgeService:
         follow_persona: bool = True,
         bot_name: str = "小千",
         attitude_deltas: dict[str, float] | None = None,
+        roster: str = "",
     ) -> None:
         self._context = context
         self._storage = storage
@@ -65,6 +67,7 @@ class JudgeService:
         self._follow_persona = follow_persona
         self._bot_name = bot_name
         self._attitude_deltas = attitude_deltas or {}
+        self._roster = (roster or "").strip()
 
     async def judge(
         self,
@@ -97,6 +100,7 @@ class JudgeService:
                 text=text.strip(),
                 persona_name=persona_name,
                 persona_prompt=persona_prompt,
+                roster=self._roster,
             )
             contexts = await self._recent_context(event)
             try:
@@ -119,7 +123,7 @@ class JudgeService:
         try:
             if self._provider_id and not self._force_session_model:
                 return self._context.get_provider_by_id(self._provider_id)
-            umo = getattr(event, "unified_msg_origin", "")
+            umo = getattr(event, "unified_msg_origin", "") if event else ""
             res = self._context.get_using_provider(umo)
             return await res if inspect.isawaitable(res) else res
         except Exception as e:
@@ -185,9 +189,10 @@ class JudgeService:
             contexts: list[dict] = []
             for rec in history[-int(n):]:
                 role = rec.get("role")
-                content = rec.get("content")
-                # 只保留有文本内容的消息；图片/工具调用等不带文本的直接跳过
-                if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                # 提取纯文本（4.26 的 content 可能是结构化列表）；
+                # 图片/工具调用/think 等不带文本的部分在提取时跳过
+                content = extract_history_text(rec.get("content"))
+                if role in ("user", "assistant") and content:
                     contexts.append({"role": role, "content": content})
             return contexts
         except Exception as e:
