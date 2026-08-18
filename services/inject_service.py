@@ -14,12 +14,12 @@ from ..core.models import FavorRecord
 from ..core.relationship import RelationshipTable
 
 
-# 主人身份的默认注入提示：身份恒定 + 好感照常涨跌（不豁免）+ 主人各好感段的语气。
+# 主人身份的默认注入提示：身份恒定 + 好感照常涨跌（不豁免）；具体语气
+# 由主人版态度指引（levels.*.master_guidance）承接，身份行只声明语义切换。
 # 用 {master_title} 占位称谓；inject.master_prompt 配置可覆盖整段。
 DEFAULT_MASTER_PROMPT = (
     "，TA 是你的{master_title}。主人身份恒定，好感度照常涨跌、不豁免——"
-    "对主人，低好感＝赌气、甩脸、敢怼（不是对外人的那种疏离）；"
-    "高好感＝亲昵撒娇"
+    "下面的等级与态度指引按主人关系理解（低好感＝赌气别扭，不是对外人的疏离）"
 )
 
 
@@ -75,6 +75,7 @@ class InjectService:
             if is_master
             else ""
         )
+        guidance = self._levels.guidance_of(record.favor, master=is_master)
         events_block = self._format_events(recent_events or [])
         relationship_block = self._format_relationship(record.relationship)
         impression_block = self._format_impression(record)
@@ -85,7 +86,7 @@ class InjectService:
             favor=fmt(record.favor),
             max_favor=fmt(self._max_favor),
             level_name=lv.name,
-            level_guidance=lv.guidance,
+            level_guidance=guidance,
             recent_events=events_block,
             relationship=relationship_block,
             impression=impression_block,
