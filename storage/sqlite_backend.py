@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from ..core.decay import effective_favor
+from ..core.decay import consolidate_half_life, effective_favor
 from ..core.decimal import round1
 from ..core.models import FavorRecord
 from .base import StorageBackend
@@ -45,7 +45,7 @@ class SQLiteBackend(StorageBackend):
     async def get(self, group_id: str, user_id: str) -> FavorRecord | None:
         with self._lock:
             row = self._c().execute(
-                "SELECT favor, updated_at, relationship, nickname, impression, tags, impression_at "
+                "SELECT favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life "
                 "FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
@@ -56,6 +56,7 @@ class SQLiteBackend(StorageBackend):
             favor=float(row[0]), updated_at=row[1],
             relationship=row[2] or "", nickname=row[3] or "",
             impression=row[4] or "", tags=row[5] or "", impression_at=row[6] or 0.0,
+            half_life=float(row[7] or 10.0),
         )
 
     async def apply_delta(
@@ -65,37 +66,44 @@ class SQLiteBackend(StorageBackend):
         delta: float,
         max_favor: float,
         min_favor: float = -100.0,
-        decay: tuple[float, float, float] | None = None,
+        decay: tuple[float, float, float, float] | None = None,
     ) -> tuple[FavorRecord, float]:
         now = time.time()
         with self._lock:
             conn = self._c()
             row = conn.execute(
-                "SELECT favor, updated_at FROM favor WHERE group_id=? AND user_id=?",
+                "SELECT favor, updated_at, half_life FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
             if row:
-                current, last_ts = float(row[0]), row[1]
+                current, last_ts, half_life = float(row[0]), row[1], float(row[2] or 10.0)
             else:
-                current, last_ts = 0.0, 0.0
-            # 时间衰减：落库前先把存量衰减到当下（锁定），再叠加本次增减
+                current, last_ts, half_life = 0.0, 0.0, 10.0
+            # 时间衰减（指数遗忘曲线）：落库前先把存量衰减到当下（锁定），再叠加本次增减
             if decay:
-                per_day, grace_days, baseline = decay
+                base, growth, h_max, baseline = decay
                 current = effective_favor(
                     current, last_ts, now,
-                    per_day=per_day, grace_days=grace_days, baseline=baseline,
+                    half_life=half_life, baseline=baseline,
                 )
+                # 正向互动巩固半衰期（SM-2 式），新 h 随本次写库落列
+                new_h = consolidate_half_life(
+                    half_life, base=base, growth=growth, h_max=h_max,
+                    positive=delta > 0,
+                )
+            else:
+                new_h = half_life
             # 收敛到 1 位小数：吸收每日限幅边界处的浮点幽灵微增量
             new_value = round1(max(min_favor, min(max_favor, current + delta)))
             real_delta = round1(new_value - current)
             conn.execute(
-                "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
+                "INSERT INTO favor(group_id, user_id, favor, updated_at, half_life) VALUES(?,?,?,?,?) "
                 "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "favor=excluded.favor, updated_at=excluded.updated_at",
-                (group_id, user_id, new_value, now),
+                "favor=excluded.favor, updated_at=excluded.updated_at, half_life=excluded.half_life",
+                (group_id, user_id, new_value, now, new_h),
             )
             conn.commit()
-        return FavorRecord(group_id, user_id, new_value, now), real_delta
+        return FavorRecord(group_id, user_id, new_value, now, half_life=new_h), real_delta
 
     async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
         now = time.time()
@@ -159,24 +167,24 @@ class SQLiteBackend(StorageBackend):
         with self._lock:
             if group_id:
                 rows = self._c().execute(
-                    "SELECT user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at FROM favor "
+                    "SELECT user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life FROM favor "
                     "WHERE group_id=? ORDER BY updated_at DESC LIMIT ?",
                     (group_id, limit),
                 ).fetchall()
                 recs = [
                     FavorRecord(group_id, r[0], float(r[1]), r[2], r[3] or "", r[4] or "",
-                                r[5] or "", r[6] or "", r[7] or 0.0)
+                                r[5] or "", r[6] or "", r[7] or 0.0, float(r[8] or 10.0))
                     for r in rows
                 ]
             else:
                 rows = self._c().execute(
-                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at FROM favor "
+                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life FROM favor "
                     "ORDER BY updated_at DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
                 recs = [
                     FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "", r[5] or "",
-                                r[6] or "", r[7] or "", r[8] or 0.0)
+                                r[6] or "", r[7] or "", r[8] or 0.0, float(r[9] or 10.0))
                     for r in rows
                 ]
         return recs

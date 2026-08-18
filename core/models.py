@@ -29,6 +29,7 @@ class FavorRecord:
     impression: str = ""
     tags: str = ""          # JSON 数组字符串（如 '["毒舌","夜猫子"]'）
     impression_at: float = 0.0
+    half_life: float = 10.0  # 遗忘曲线半衰期（天）；正互动巩固增长
 
     def parsed_tags(self) -> list[str]:
         """tags JSON 字符串 → 标签列表；损坏/空返回 []。"""

@@ -474,32 +474,89 @@ class TestDecimal:
 
 
 class TestDecay:
-    def test_no_decay_when_disabled(self):
-        assert effective_favor(80, 0, 1000, per_day=0, grace_days=3, baseline=0) == 80
+    """指数遗忘曲线：effective = baseline + (stored−baseline)·0.5^(闲置天数/h)"""
 
     def test_no_decay_never_interacted(self):
         # updated_at=0 → 即便 idle 巨大也不衰减
-        assert effective_favor(80, 0, 1_000_000_000, per_day=1, grace_days=3, baseline=0) == 80
+        assert effective_favor(80, 0, 1_000_000_000, half_life=10, baseline=0) == 80
 
-    def test_within_grace_no_decay(self):
+    def test_short_idle_small_loss(self):
+        # h=10、静默 1 天：80 → 80×0.5^0.1 ≈ 74.6（连续衰减，无宽限断崖）
         now = 86400 * 10
-        updated = now - 86400 * 2  # 2 天前，宽限 3 天内
-        assert effective_favor(80, updated, now, per_day=1, grace_days=3, baseline=0) == 80
+        updated = now - 86400 * 1
+        assert effective_favor(80, updated, now, half_life=10, baseline=0) == 74.6
 
-    def test_decays_beyond_grace(self):
-        now = 86400 * 10
-        updated = now - 86400 * 5  # 5 天前，超宽限 3 → 衰减 2 天
-        assert effective_favor(80, updated, now, per_day=1, grace_days=3, baseline=0) == 78
-
-    def test_does_not_cross_baseline(self):
+    def test_half_life_meaning(self):
+        # h=10、静默恰 10 天 → 恰好减半（半衰期定义）
         now = 86400 * 100
-        updated = 86400  # 很久以前
-        assert effective_favor(80, updated, now, per_day=100, grace_days=0, baseline=0) == 0
+        updated = now - 86400 * 10
+        assert effective_favor(80, updated, now, half_life=10, baseline=0) == 40
 
-    def test_negative_rises_to_baseline(self):
+    def test_consolidated_decays_slower(self):
+        # 老朋友 h=60：静默 30 天保留 70%；新关系 h=10 只剩 12.5%
         now = 86400 * 100
+        updated = now - 86400 * 30
+        assert effective_favor(80, updated, now, half_life=60, baseline=0) == round(80 * 0.5 ** 0.5, 1)
+        assert effective_favor(80, updated, now, half_life=10, baseline=0) == 10.0
+
+    def test_baseline_convergence_no_cross(self):
+        # 极长静默：两侧存量都收敛到 baseline 不越界
+        now = 86400 * 10000
         updated = 86400
-        assert effective_favor(-50, updated, now, per_day=100, grace_days=0, baseline=0) == 0
+        assert effective_favor(80, updated, now, half_life=10, baseline=0) == 0
+        assert effective_favor(-50, updated, now, half_life=10, baseline=0) == 0
+        # 非零基线同理
+        assert effective_favor(80, updated, now, half_life=10, baseline=20) == 20
+
+    def test_illegal_half_life_falls_back(self):
+        now = 86400 * 100
+        updated = now - 86400 * 10
+        # 非法 h → 回落 HALF_LIFE_MIN(5)，静默 10 天=两个半衰期 → 1/4
+        assert effective_favor(80, updated, now, half_life=0, baseline=0) == 20
+        assert effective_favor(80, updated, now, half_life=-3, baseline=0) == 20
+
+    def test_future_or_zero_time_noop(self):
+        assert effective_favor(80, 1000, 1000, half_life=10, baseline=0) == 80
+        assert effective_favor(80, 2000, 1000, half_life=10, baseline=0) == 80  # 时间倒流防御
+
+
+class TestConsolidate:
+    """巩固规则（SM-2 温和版）：正向 ×1.3 封顶 60；非正向不动"""
+
+    def test_positive_grows(self):
+        from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
+
+        assert ch(10, base=10, growth=1.3, h_max=60, positive=True) == 13.0
+        assert ch(13, base=10, growth=1.3, h_max=60, positive=True) == 16.9
+
+    def test_cap_at_max(self):
+        from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
+
+        assert ch(50, base=10, growth=1.3, h_max=60, positive=True) == 60.0
+        assert ch(60, base=10, growth=1.3, h_max=60, positive=True) == 60.0
+
+    def test_nonpositive_unchanged(self):
+        from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
+
+        assert ch(30, base=10, growth=1.3, h_max=60, positive=False) == 30.0
+        assert ch(30, base=10, growth=1.3, h_max=60, positive=False) == 30.0  # 负向也不降
+
+    def test_illegal_falls_back_to_base(self):
+        from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
+
+        assert ch(0, base=10, growth=1.3, h_max=60, positive=True) == 13.0
+        assert ch(-5, base=10, growth=1.3, h_max=60, positive=False) == 10.0
+
+    def test_sequence_daily_chat(self):
+        # 每天一次正向互动的半衰期序列：10→13→16.9→21.9…→60 封顶
+        from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
+
+        h = 10.0
+        seq = [h]
+        for _ in range(20):
+            h = ch(h, base=10, growth=1.3, h_max=60, positive=True)
+            seq.append(h)
+        assert seq[-1] == 60.0 and all(x <= 60 for x in seq)
 
 
 # ---------------- schema 迁移 ----------------
@@ -609,8 +666,8 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert "impression" in cols and "tags" in cols and "impression_at" in cols
         conn.close()
 
-    def test_v6_to_v7_upgrade_round_trip(self, tmp_path):
-        # 旧库（v6）升级到 v7：数据不丢，新列可用
+    def test_v6_to_v8_upgrade_round_trip(self, tmp_path):
+        # 旧库（v6）升级到最新：数据不丢，新列可用
         import sqlite3
 
         conn = sqlite3.connect(str(tmp_path / "old.db"))
@@ -625,10 +682,60 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u',5.5,1)")
         conn.commit()
         migrate(conn)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
-        row = conn.execute("SELECT favor, impression FROM favor WHERE group_id='g' AND user_id='u'").fetchone()
-        assert row[0] == 5.5 and row[1] == ""
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        row = conn.execute(
+            "SELECT favor, impression, half_life FROM favor WHERE group_id='g' AND user_id='u'"
+        ).fetchone()
+        assert row[0] == 5.5 and row[1] == "" and row[2] == 10  # 存量统一 h=10
         conn.close()
+
+    def test_v8_half_life_column(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        migrate(conn)
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(favor)").fetchall()]
+        assert "half_life" in cols
+        conn.close()
+
+
+# ---------------- 衰减写路径集成（apply_delta 巩固） ----------------
+
+class TestDecayWritePath:
+    def _svc(self, tmp_path, decay=True):
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        return FavorService(
+            b, LevelTable.from_config(None),
+            decay_enabled=decay,
+            half_life_base=10, half_life_growth=1.3, half_life_max=60,
+        ), b
+
+    def test_positive_delta_consolidates(self, tmp_path):
+        svc, b = self._svc(tmp_path)
+        asyncio.run(svc.change("g", "u", 5))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.half_life == 13.0  # 10 × 1.3
+
+    def test_negative_delta_keeps_half_life(self, tmp_path):
+        svc, b = self._svc(tmp_path)
+        asyncio.run(svc.change("g", "u", 5))       # h → 13
+        asyncio.run(svc.change("g", "u", -1))      # 负向不动 h
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.half_life == 13.0
+
+    def test_set_favor_does_not_consolidate(self, tmp_path):
+        # 管理员设定不算感情互动
+        svc, b = self._svc(tmp_path)
+        asyncio.run(svc.set_favor("g", "u", 50))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.half_life == 10.0
+
+    def test_decay_disabled_no_consolidation(self, tmp_path):
+        svc, b = self._svc(tmp_path, decay=False)
+        asyncio.run(svc.change("g", "u", 5))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.half_life == 10.0
 
 
 # ---------------- 印象落库与读取 ----------------
