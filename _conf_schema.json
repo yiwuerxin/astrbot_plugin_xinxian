@@ -21,13 +21,13 @@
   },
   "daily_cap_up": {
     "type": "float",
-    "description": "每日好感度上涨上限（规则+评估合计，支持一位小数）",
-    "default": 15
+    "description": "每日好感度上涨上限（规则+评估合计，支持一位小数）。真实关系节奏建议 4：挚友约 2 个月、挚爱 3~4 个月",
+    "default": 4
   },
   "daily_cap_down": {
     "type": "float",
-    "description": "每日好感度下降上限（绝对值，支持一位小数）",
-    "default": 15
+    "description": "每日好感度下降上限（绝对值，支持一位小数）。默认比上涨上限宽（负性偏向：坏事比好事重）",
+    "default": 8
   },
   "rules": {
     "type": "object",
@@ -38,7 +38,7 @@
         "description": "当日首次互动",
         "items": {
           "enabled": { "type": "bool", "default": true, "description": "是否启用" },
-          "delta": { "type": "float", "default": 2, "description": "分值（支持一位小数）" }
+          "delta": { "type": "float", "default": 1, "description": "分值（支持一位小数）。定位是「维持费」——只防衰减，不推进关系" }
         }
       }
     }
@@ -55,7 +55,18 @@
       "narrative_reason": { "type": "bool", "default": false, "description": "开启后强制用当前会话（主）模型评估，并按小千口吻写变动理由（仅分值非 0 时），写入流水供面板查看，更符合人格" },
       "context_window": { "type": "int", "default": 0, "description": "评估时带入最近 N 条会话消息作为上下文（仅文本，图片忽略），便于结合语境判断（如识别反讽）。0=不带上下文（最省 token）" },
       "follow_persona": { "type": "bool", "default": true, "description": "评估提示词跟随 AstrBot 当前人格：切换人格后，评审按该人格的名字与人设判断态度（如小千 vs 其他角色）。关闭则固定用下面的 bot_name" },
-      "bot_name": { "type": "string", "default": "小千", "description": "未开启 follow_persona 或解析不到人格时的兜底称呼" }
+      "bot_name": { "type": "string", "default": "小千", "description": "未开启 follow_persona 或解析不到人格时的兜底称呼" },
+      "attitude_deltas": {
+        "type": "object",
+        "description": "五档分值映射：模型只判档位（敌意/冷淡/中性/友好/热情），分值在这里定，杜绝模型自由打分的通胀偏置",
+        "items": {
+          "diyi": { "type": "float", "default": -2.5, "description": "敌意档分值" },
+          "lengdan": { "type": "float", "default": -0.8, "description": "冷淡档分值" },
+          "zhongxing": { "type": "float", "default": 0, "description": "中性档分值（保持 0）" },
+          "youhao": { "type": "float", "default": 0.6, "description": "友好档分值" },
+          "reqing": { "type": "float", "default": 1.8, "description": "热情档分值" }
+        }
+      }
     }
   },
   "levels": {
@@ -110,6 +121,29 @@
       "per_day": { "type": "float", "default": 1.0, "description": "超过宽限期后，每天向基线靠拢的量（支持一位小数）" },
       "grace_days": { "type": "int", "default": 3, "description": "宽限天数；idle 不超过此值不衰减" },
       "baseline": { "type": "float", "default": 0, "description": "衰减基线（好感向此值靠拢，不会越过）" }
+    }
+  },
+  "economy": {
+    "type": "object",
+    "description": "防通胀经济学（仅评审路径）：真实关系的增长规律——寒暄不推进关系、高阶段增长更难、坏事比好事重",
+    "items": {
+      "enabled": { "type": "bool", "default": true, "description": "总开关。关闭后评审分值直给（旧行为）" },
+      "noise_floor": { "type": "float", "default": 0.5, "description": "噪声地板：|分值| 小于该值直接归零（拦截评审碎分/宽大偏置）。0=关闭" },
+      "negative_weight": { "type": "float", "default": 1.5, "description": "负面权重放大倍数（负性偏向：坏事比好事重 2~5 倍）。1=不放大" },
+      "same_day_decay": { "type": "float", "default": 0.25, "description": "同日重复衰减：当日第 N+1 次正向评审乘 max(0.25, 1-斜率×N)——重复刷好感边际递减。0=关闭" },
+      "level_mult": {
+        "type": "object",
+        "description": "阶段正分乘数（社会渗透理论：关系越深，日常互动越难再推进，需更高质量的互动）。负分不受影响",
+        "items": {
+          "yanwu": { "type": "float", "default": 1, "description": "厌恶段乘数" },
+          "mosheng": { "type": "float", "default": 1, "description": "陌生段乘数" },
+          "renshi": { "type": "float", "default": 1, "description": "认识段乘数" },
+          "youhao": { "type": "float", "default": 0.75, "description": "友好段乘数" },
+          "qinmi": { "type": "float", "default": 0.55, "description": "亲密段乘数" },
+          "zhiyou": { "type": "float", "default": 0.35, "description": "挚友段乘数" },
+          "zhiai": { "type": "float", "default": 0.2, "description": "挚爱段乘数" }
+        }
+      }
     }
   },
   "relationship": {

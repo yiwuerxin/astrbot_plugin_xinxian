@@ -25,6 +25,8 @@ from .api.facade import XinxianFacade
 from .api.listeners import Deps, on_group_message, on_llm_request
 from .core.events import RuleMatcher
 from .core.identity import parse_master_ids
+from .core.judge_parse import DEFAULT_ATTITUDE_DELTAS
+from .core.level_economy import EconomyConfig
 from .core.levels import LevelTable
 from .core.relationship import RelationshipTable
 from .services.favor_service import FavorService
@@ -48,7 +50,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.19.0",
+    "1.20.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -77,6 +79,8 @@ class XinxianPlugin(Star):
             else None
         )
         self._relationships = relationships
+        # 防通胀经济学层（拼音配置键→中文等级名的映射在 from_config 内处理）
+        eco = EconomyConfig.from_config(economy_cfg)
         self._favor = FavorService(
             self._storage,
             levels,
@@ -91,10 +95,20 @@ class XinxianPlugin(Star):
             decay_grace_days=float(decay_cfg.get("grace_days", 3)),
             decay_baseline=float(decay_cfg.get("baseline", 0.0)),
             relationships=relationships,
+            economy=eco,
         )
 
         judge_cfg = config.get("judge") or {}
         inject_cfg = config.get("inject") or {}
+        economy_cfg = config.get("economy") or {}
+
+        # 五档分值映射：配置键（拼音）→ 档位名（中文）
+        ad_raw = judge_cfg.get("attitude_deltas") or {}
+        _AD_KEYS = {"diyi": "敌意", "lengdan": "冷淡", "zhongxing": "中性", "youhao": "友好", "reqing": "热情"}
+        attitude_deltas = {
+            tier: float(ad_raw.get(key, DEFAULT_ATTITUDE_DELTAS[tier]))
+            for key, tier in _AD_KEYS.items()
+        }
 
         template = (inject_cfg.get("template") or "").strip() or _read_resource(
             "resources/prompts/inject_template.txt"
@@ -132,6 +146,7 @@ class XinxianPlugin(Star):
             context_window=int(judge_cfg.get("context_window", 0)),
             follow_persona=bool(judge_cfg.get("follow_persona", True)),
             bot_name=(judge_cfg.get("bot_name") or "").strip() or "小千",
+            attitude_deltas=attitude_deltas,
         )
         self._deps = Deps(
             favor=self._favor,

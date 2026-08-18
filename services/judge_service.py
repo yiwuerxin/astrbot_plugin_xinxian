@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import re
 import time
 from dataclasses import dataclass
 
@@ -17,6 +16,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
+from ..core.judge_parse import ParsedJudge, parse as parse_judge
 from ..core.judge_prompt import render
 from ..storage.base import StorageBackend
 
@@ -25,20 +25,15 @@ from ..storage.base import StorageBackend
 class JudgeResult:
     """一次评估结果。"""
 
-    delta: float     # 调整分值（已限幅，精度一位小数），0 = 中性
-    attitude: str    # 友好 / 敌意 / 中性
+    delta: float     # 调整分值（档位映射+限幅，精度一位小数），0 = 中性
+    attitude: str    # 五档：敌意 / 冷淡 / 中性 / 友好 / 热情
     raw: str         # 模型原始输出
-    reason: str = ""  # 主模型口吻的变动理由（narrative 模式下有值）
+    reason: str = ""  # 变动理由（narrative 模式下有值）
+    evidence: str = ""  # 非中性档位的原话证据（解析层强制要求）
 
 
 class JudgeService:
     """LLM 情绪评估服务。"""
-
-    _PARSE_RE = re.compile(
-        r"态度[:：]\s*(友好|善意|敌意|恶意|中性)[\s\S]*?"
-        r"分值[:：]\s*([+-]?\d+(?:\.\d+)?)"
-        r"(?:[\s\S]*?理由[:：]\s*(.+))?"  # narrative 模式才有；可选
-    )
 
     def __init__(
         self,
@@ -55,6 +50,7 @@ class JudgeService:
         context_window: int = 0,
         follow_persona: bool = True,
         bot_name: str = "小千",
+        attitude_deltas: dict[str, float] | None = None,
     ) -> None:
         self._context = context
         self._storage = storage
@@ -68,6 +64,7 @@ class JudgeService:
         self._context_window = context_window
         self._follow_persona = follow_persona
         self._bot_name = bot_name
+        self._attitude_deltas = attitude_deltas or {}
 
     async def judge(
         self,
@@ -198,17 +195,16 @@ class JudgeService:
             return []
 
     def _parse(self, content: str) -> JudgeResult | None:
-        """解析模型输出（态度:xx 分值:±n[ 理由:...]），限幅并校验符号一致性。"""
-        m = self._PARSE_RE.search(content)
-        if not m:
+        """解析模型输出 → 五档 ParsedJudge（旧格式自动兼容），映射为 JudgeResult。"""
+        parsed: ParsedJudge | None = parse_judge(
+            content, self._attitude_deltas, max_abs_delta=self._max_abs_delta
+        )
+        if parsed is None:
             return None
-        attitude, raw_delta = m.group(1), float(m.group(2))
-        reason = (m.group(3) or "").strip()  # narrative 模式才有
-        if attitude in ("友好", "善意"):
-            delta = abs(raw_delta)
-        elif attitude in ("敌意", "恶意"):
-            delta = -abs(raw_delta)
-        else:
-            delta = 0
-        delta = max(-self._max_abs_delta, min(self._max_abs_delta, delta))
-        return JudgeResult(delta=delta, attitude=attitude, raw=content, reason=reason)
+        return JudgeResult(
+            delta=parsed.delta,
+            attitude=parsed.tier,
+            raw=content,
+            reason=parsed.reason,
+            evidence=parsed.evidence,
+        )
