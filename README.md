@@ -64,6 +64,7 @@ astrbot_plugin_xinxian/
 | rules.* | 见 schema | 每日首次互动的开关、分值（支持一位小数） |
 | judge.enabled / provider_id | true / "" | LLM 评估开关与模型（建议选便宜小模型，留空跟随会话） |
 | judge.only_when_at_or_reply | true | 仅@/回复时评估，省成本 |
+| judge.follow_persona / bot_name | true / 小千 | 评估提示词跟随 AstrBot 当前人格（切人格后按新人格的名字与人设评审）；关闭则固定用 bot_name |
 | levels.* | 见 schema | 七级阈值（含「厌恶」负值区间）与态度指引文本 |
 | inject.enabled | true | 提示词注入开关；template 可自定义 |
 
