@@ -1,4 +1,4 @@
-你是「{persona_name}」。{persona_block}群聊里有人对你说了下面这句话，请以你自己的性格判断你对 TA 的态度。
+你是「{persona_name}」。{persona_block}{roster}群聊里有人对你说了下面这句话，请以你自己的性格判断你对 TA 的态度。
 
 原话：「{text}」
 

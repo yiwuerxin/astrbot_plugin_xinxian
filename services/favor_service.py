@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import date
 
 from ..core.decay import effective_favor
 from ..core.decimal import round1
 from ..core.identity import is_master as _is_master
+from ..core.impression import build_summary_prompt, parse_summary, stats_tags
 from ..core.levels import LevelTable
 from ..core.level_economy import EconomyConfig, apply as apply_economy
 from ..core.relationship import RelationshipTable
@@ -39,6 +41,7 @@ class FavorService:
         decay_baseline: float = 0.0,
         relationships: RelationshipTable | None = None,
         economy: EconomyConfig | None = None,
+        impression_interval: int = 8,
     ) -> None:
         self._storage = storage
         self._levels = levels
@@ -55,6 +58,8 @@ class FavorService:
         )
         self._relationships = relationships
         self._economy = economy
+        self._impression_interval = max(1, int(impression_interval))
+        self._summarizer = None  # 由 main.py 注入（JudgeService，借其 provider 解析）
         self._nick_cache: dict[tuple[str, str], str] = {}
 
     # ---------- 查询 ----------
@@ -105,6 +110,9 @@ class FavorService:
                 "level": self.level_of(eff).name,
                 "relationship": self.relationship_label(r.relationship) if r.relationship else "",
                 "nickname": r.nickname or "",
+                "impression": r.impression or "",
+                "tags": r.parsed_tags(),
+                "impression_at": r.impression_at,
                 "updated_at": r.updated_at,
                 "idle_days": idle,
             })
@@ -153,6 +161,78 @@ class FavorService:
             rows = [r for r in rows if r.get("ts", 0) >= cutoff]
         return rows[:count]
 
+    def bind_summarizer(self, judge) -> None:
+        """注入 JudgeService（借其 provider 解析与人格名，用于印象汇总调用）。"""
+        self._summarizer = judge
+
+    async def maybe_refresh_impression(self, group_id: str, user_id: str) -> None:
+        """每次有效评审后调用：每 interval 次触发一次后台印象刷新（不阻塞、失败静默）。"""
+        if self._summarizer is None or self._impression_interval <= 0:
+            return
+        try:
+            logs = await self._storage.query_logs(group_id, user_id, limit=self._impression_interval)
+            hit = sum(1 for r in logs if r.get("source") == "judge")
+            if hit and hit % self._impression_interval == 0:
+                asyncio.get_event_loop().create_task(
+                    self._refresh_impression_inner(group_id, user_id)
+                )
+        except Exception:
+            pass  # 印象是增值功能，任何失败都不影响主链路
+
+    async def refresh_impression_now(self, group_id: str, user_id: str) -> str:
+        """立即刷新印象（指令/WebUI 手动触发），返回一句话结果。"""
+        if self._summarizer is None:
+            return "印象功能未启用"
+        return await self._refresh_impression_inner(group_id, user_id)
+
+    async def _refresh_impression_inner(self, group_id: str, user_id: str) -> str:
+        """收集流水 → 构造汇总提示 → 调 provider → 解析落库。"""
+        from astrbot.api import logger  # 延迟导入，保持 core 可测性
+
+        try:
+            rec = await self.get(group_id, user_id)
+            logs = await self._storage.query_logs(group_id, user_id, limit=20)
+            judged = [r for r in logs if r.get("source") == "judge"]
+            if not judged:
+                return "暂无评估记录，无法生成印象"
+            samples = [
+                f"{float(r.get('delta') or 0):+} {r.get('message') or ''} —— {r.get('reason') or ''}"
+                for r in reversed(judged)  # 时间正序（query_logs 是倒序）
+            ]
+            persona_name = "小千"
+            try:
+                persona_name = self._summarizer._bot_name
+            except Exception:
+                pass
+            prompt = build_summary_prompt(
+                rec.nickname or user_id, rec.impression, samples, persona_name
+            )
+            provider = await self._summarizer._resolve_provider(None)
+            if provider is None:
+                return "模型不可用，稍后再试"
+            resp = await provider.text_chat(prompt=prompt)
+            content = (getattr(resp, "completion_text", "") or "").strip()
+            parsed = parse_summary(content)
+            if parsed is None:
+                return "模型输出无法解析，保留原印象"
+            impression, llm_tags = parsed
+            # LLM 标签优先，确定性统计标签补充（去重、上限内）
+            extra = [t for t in stats_tags(logs) if t not in llm_tags]
+            tags = (llm_tags + extra)[:3]
+            await self._storage.set_impression(group_id, user_id, impression, tags)
+            logger.info(f"[心弦] {group_id}/{user_id} 印象已刷新: {impression}")
+            return f"已生成印象：{impression}" + (f"（标签：{'、'.join(tags)}）" if tags else "")
+        except Exception as e:
+            logger.warning(f"[心弦] 印象刷新失败（静默）: {e}")
+            return f"刷新失败: {e}"
+
+    async def set_tags(self, group_id: str, user_id: str, tags: list[str]) -> None:
+        """手动设置标签（指令入口）；印象本体由 AI 维护，这里只改标签。"""
+        rec = await self.get(group_id, user_id)
+        await self._storage.set_impression(
+            group_id, user_id, rec.impression, [t.strip()[:6] for t in tags if t.strip()][:3]
+        )
+
     # ---------- 增减 ----------
 
     async def apply_judge(
@@ -173,12 +253,15 @@ class FavorService:
             if eco.delta == 0:
                 return FavorChange(0, reason, "judge", clamped=True, favor_after=rec0.favor)
             delta = eco.delta
-        return await self._apply_one(
+        change = await self._apply_one(
             group_id, user_id, delta,
             cooldown_key=None, cooldown_sec=0,
             reason=reason, source="judge",
             message=(message or "")[:200],
         )
+        if change.delta:
+            await self.maybe_refresh_impression(group_id, user_id)
+        return change
 
     async def _positive_judge_today(self, group_id: str, user_id: str) -> int:
         """当日已生效的正向评审次数（供同日重复衰减）。失败返回 0。"""

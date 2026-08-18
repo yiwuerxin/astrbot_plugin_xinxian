@@ -107,6 +107,46 @@ createApp({
     const showDetail = (r) => { selectedLog.value = r; };
     const closeDetail = () => { selectedLog.value = null; };
 
+    // 成员详情弹窗（印象/标签/近期评审）
+    const memberDetail = ref(null);
+    const memberLoading = ref(false);
+    const openMember = async (u) => {
+      errorMsg.value = "";
+      memberLoading.value = true;
+      try {
+        const data = await bridge.apiGet("member", { group_id: u.group_id, user_id: u.user_id });
+        if (data && data.success === false) {
+          errorMsg.value = data.error || "加载成员详情失败";
+        } else {
+          memberDetail.value = data.member || null;
+        }
+      } catch (e) {
+        errorMsg.value = String(e);
+      } finally {
+        memberLoading.value = false;
+      }
+    };
+    const closeMember = () => { memberDetail.value = null; };
+    const refreshImpression = async () => {
+      const m = memberDetail.value;
+      if (!m) return;
+      errorMsg.value = "";
+      memberLoading.value = true;
+      try {
+        const data = await bridge.apiGet("refresh_impression", { group_id: m.group_id, user_id: m.user_id });
+        if (data && data.success === false) {
+          errorMsg.value = data.error || data.message || "刷新失败";
+        } else {
+          await openMember(m); // 重新拉取详情展示新印象
+          await fetchUsers();
+        }
+      } catch (e) {
+        errorMsg.value = String(e);
+      } finally {
+        memberLoading.value = false;
+      }
+    };
+
     const fetchGroups = async () => {
       try {
         const data = await bridge.apiGet("groups");
@@ -190,6 +230,7 @@ createApp({
       levelColor, levelChipStyle, barStyle,
       undoPreview, openUndo, closeUndo, confirmUndo,
       selectedLog, showDetail, closeDetail,
+      memberDetail, memberLoading, openMember, closeMember, refreshImpression,
       fetchLogs, fetchUsers, refresh, switchTab,
     };
   },
@@ -232,12 +273,12 @@ createApp({
         <table class="xx-table">
           <thead>
             <tr>
-              <th>群</th><th>QQ</th><th>好感(有效)</th><th>等级</th><th>关系</th><th>最近互动</th><th>状态</th>
+              <th>群</th><th>QQ</th><th>好感(有效)</th><th>等级</th><th>关系</th><th>最近互动</th><th>状态</th><th>印象/标签</th><th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleUsers.length">
-              <td colspan="7" class="xx-empty">{{ loading ? "加载中…" : (users.length ? "无匹配成员" : "暂无成员") }}</td>
+              <td colspan="9" class="xx-empty">{{ loading ? "加载中…" : (users.length ? "无匹配成员" : "暂无成员") }}</td>
             </tr>
             <tr v-for="u in visibleUsers" :key="u.group_id + '_' + u.user_id">
               <td class="xx-mono">{{ u.group_id }}</td>
@@ -258,6 +299,18 @@ createApp({
                 <span v-if="u.decayed" class="xx-tag">衰减中</span>
                 <span v-else-if="u.idle_days != null && u.idle_days >= 3" class="xx-tag">{{ u.idle_days }}天未动</span>
                 <span v-else>-</span>
+              </td>
+              <td class="xx-imp-cell">
+                <div class="xx-imp">
+                  <div v-if="u.tags && u.tags.length" class="xx-chips">
+                    <span v-for="t in u.tags" :key="t" class="xx-chip">{{ t }}</span>
+                  </div>
+                  <p v-if="u.impression" class="xx-imp-text" :title="u.impression">{{ u.impression.length > 12 ? u.impression.slice(0, 12) + '…' : u.impression }}</p>
+                  <span v-if="!u.impression && !(u.tags && u.tags.length)" class="xx-muted">-</span>
+                </div>
+              </td>
+              <td class="xx-actions">
+                <button class="xx-btn xx-btn-mini" @click="openMember(u)">详情</button>
               </td>
             </tr>
           </tbody>
@@ -315,6 +368,60 @@ createApp({
             <h4>AI 原因</h4>
             <p class="xx-modal-text">{{ selectedLog.reason || "-" }}</p>
           </section>
+        </div>
+      </div>
+
+      <!-- 成员详情弹窗：印象 + 标签 + 近期评审 -->
+      <div v-if="memberDetail" class="xx-modal" @click.self="closeMember">
+        <div class="xx-modal-box">
+          <header class="xx-modal-header">
+            <span>成员详情</span>
+            <button class="xx-modal-close" @click="closeMember">×</button>
+          </header>
+          <div class="xx-modal-meta xx-mono">
+            QQ {{ memberDetail.user_id }}
+            <span v-if="memberDetail.nickname">（{{ memberDetail.nickname }}）</span>
+            · 群 {{ memberDetail.group_id }}
+            <span v-if="memberDetail.is_master" class="xx-tag">主人</span>
+          </div>
+          <div class="xx-member-stats">
+            <div class="xx-member-stat">
+              <label>好感</label>
+              <b :style="{ color: levelColor(memberDetail.level) }">{{ fmtNum(memberDetail.favor) }}</b>
+            </div>
+            <div class="xx-member-stat">
+              <label>等级</label>
+              <span class="xx-level-chip" :style="levelChipStyle(memberDetail.level)"><i></i>{{ memberDetail.level }}</span>
+            </div>
+            <div class="xx-member-stat">
+              <label>关系</label>
+              <span>{{ memberDetail.relationship || "-" }}</span>
+            </div>
+          </div>
+          <section class="xx-modal-section">
+            <h4>印象</h4>
+            <div v-if="memberDetail.tags && memberDetail.tags.length" class="xx-chips">
+              <span v-for="t in memberDetail.tags" :key="t" class="xx-chip">{{ t }}</span>
+            </div>
+            <p class="xx-modal-text">{{ memberDetail.impression || "（尚未生成，点下方按钮立即刷新）" }}</p>
+          </section>
+          <section class="xx-modal-section">
+            <h4>近期评审</h4>
+            <p v-if="!memberDetail.recent_judges || !memberDetail.recent_judges.length" class="xx-modal-text xx-muted-text">暂无评估记录</p>
+            <ul v-else class="xx-judge-list">
+              <li v-for="(j, i) in memberDetail.recent_judges" :key="i">
+                <span class="xx-mono">{{ fmtTime(j.ts) }}</span>
+                <span :class="j.delta > 0 ? 'xx-up' : (j.delta < 0 ? 'xx-down' : 'xx-zero')">{{ fmtDelta(j.delta) }}</span>
+                <span class="xx-judge-reason">{{ j.reason || "-" }}</span>
+              </li>
+            </ul>
+          </section>
+          <div class="xx-modal-actions">
+            <button class="xx-btn xx-btn-mini" @click="closeMember">关闭</button>
+            <button class="xx-btn" @click="refreshImpression" :disabled="memberLoading">
+              {{ memberLoading ? "处理中…" : "立即刷新印象" }}
+            </button>
+          </div>
         </div>
       </div>
 
