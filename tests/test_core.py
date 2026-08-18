@@ -626,3 +626,60 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert "message" in cols and "reversed" in cols
         conn.close()
 
+
+# ---------------- 评估提示词渲染（随人格同步） ----------------
+
+class TestJudgePromptRender:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.judge_prompt import persona_block, render
+
+        self.render = render
+        self.persona_block = persona_block
+        self.tpl = "你是「{persona_name}」。{persona_block}原话：「{text}」"
+
+    def test_persona_name_injected(self):
+        out = self.render(self.tpl, text="你好呀", persona_name="凛冬", persona_prompt="")
+        assert "「凛冬」" in out and "原话：「你好呀」" in out
+        assert "人设摘要" not in out  # 空人设 → 无摘要段
+
+    def test_persona_block_rendered_and_truncated(self):
+        long_prompt = "性格设定。" * 200  # 1000 字
+        out = self.render(self.tpl, text="hi", persona_name="凛冬", persona_prompt=long_prompt)
+        assert "人设摘要" in out
+        assert long_prompt not in out  # 已截断
+        assert self.persona_block(long_prompt).endswith("…\n\n")
+
+    def test_fallback_name_when_empty(self):
+        out = self.render(self.tpl, text="hi", persona_name="", persona_prompt="")
+        assert "「小千」" in out  # 空名回落 bot_name
+
+    def test_legacy_template_only_text_still_works(self):
+        # 旧自定义模板只含 {text}：format 忽略多余 kwargs，不报错
+        out = self.render("原话：「{text}」", text="hi", persona_name="凛冬", persona_prompt="x")
+        assert out == "原话：「hi」"
+
+    def test_persona_block_short_passthrough(self):
+        assert self.persona_block("高冷") == "（人设摘要，供理解语境）：\n高冷\n\n"
+        assert self.persona_block("") == ""
+        assert self.persona_block("  ") == ""
+
+
+# ---------------- user_version 白名单写入 ----------------
+
+class TestPragmaVersion:
+    def test_set_and_reject(self):
+        import sqlite3
+
+        from astrbot_plugin_xinxian.storage.pragma_version import (
+            SUPPORTED_VERSIONS,
+            set_user_version,
+        )
+
+        conn = sqlite3.connect(":memory:")
+        for v in SUPPORTED_VERSIONS:
+            set_user_version(conn, v)
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == v
+        with pytest.raises(ValueError):
+            set_user_version(conn, 99)
+        conn.close()
+

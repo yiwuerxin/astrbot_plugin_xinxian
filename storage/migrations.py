@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import sqlite3
 
+from .pragma_version import set_user_version
+
 SCHEMA_VERSION = 6
+
 
 # 版本号 -> 该版本需要执行的 DDL/DML 语句列表
 MIGRATIONS: dict[int, list[str]] = {
@@ -114,7 +117,7 @@ def migrate(conn: sqlite3.Connection) -> None:
                 conn.execute("BEGIN")
             for stmt in MIGRATIONS.get(version, []):
                 conn.execute(stmt)
-            conn.execute(f"PRAGMA user_version = {version}")
+            set_user_version(conn, version)
             conn.commit()
         except Exception:
             conn.rollback()
