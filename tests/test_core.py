@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from astrbot_plugin_xinxian.core.decay import effective_favor  # noqa: E402
 from astrbot_plugin_xinxian.core.decimal import fmt, round1  # noqa: E402
-from astrbot_plugin_xinxian.core.events import EventType, RuleMatcher  # noqa: E402
 from astrbot_plugin_xinxian.core.identity import is_master, parse_master_ids  # noqa: E402
 from astrbot_plugin_xinxian.core.levels import LevelTable  # noqa: E402
 from astrbot_plugin_xinxian.core.relationship import RelationshipTable  # noqa: E402
@@ -53,23 +52,6 @@ class TestLevelTable:
         table = LevelTable.from_config({"levels": {"youhao": {"min": 50}}})
         assert table.level_of(49).name == "认识"
         assert table.level_of(50).name == "友好"
-
-
-# ---------------- 规则匹配 ----------------
-
-class TestRuleMatcher:
-    def setup_method(self):
-        self.matcher = RuleMatcher.from_config(None)
-
-    def test_first_today(self):
-        hits = self.matcher.match(is_first_today=True)
-        assert [r.event for r in hits] == [EventType.DAILY_FIRST]
-
-    def test_not_first_today(self):
-        assert self.matcher.match(is_first_today=False) == []
-
-    def test_no_hit(self):
-        assert self.matcher.match() == []
 
 
 # ---------------- 身份 ----------------
@@ -315,14 +297,6 @@ class TestFavorService:
         asyncio.run(svc.reset("g1", "u1"))
         rec = asyncio.run(svc.get("g1", "u1"))
         assert rec.favor == 0
-
-    def test_first_today(self, tmp_path):
-        svc = _make_service(tmp_path)
-        assert asyncio.run(svc.is_first_today("g1", "u1")) is True
-        matcher = RuleMatcher.from_config(None)
-        rules = matcher.match(is_first_today=True)
-        asyncio.run(svc.apply_rules("g1", "u1", rules))
-        assert asyncio.run(svc.is_first_today("g1", "u1")) is False
 
     def test_change_is_logged(self, tmp_path):
         svc = _make_service(tmp_path)
@@ -684,7 +658,7 @@ class TestPragmaVersion:
         conn.close()
 
 
-# ---------------- 评审五档解析 ----------------
+# ---------------- 评审解析（五档 + 模型自由分值） ----------------
 
 class TestJudgeParse:
     def setup_method(self):
@@ -692,35 +666,59 @@ class TestJudgeParse:
 
         self.parse = parse
 
-    def test_tier_with_evidence(self):
-        r = self.parse("档位:热情\n证据:「跟你聊天比跟谁都开心」\n理由:直白好感")
-        assert r.tier == "热情" and r.delta == 1.8
+    def test_tier_score_evidence(self):
+        r = self.parse("档位:热情\n分值:2.0\n证据:「跟你聊天比跟谁都开心」\n理由:直白好感")
+        assert r.tier == "热情" and r.delta == 2.0  # 模型分值原样采用（区间内）
         assert "跟谁都开心" in r.evidence and r.reason == "直白好感"
 
-    def test_neutral_omits_evidence(self):
-        r = self.parse("档位:中性")
-        assert r.tier == "中性" and r.delta == 0 and r.evidence == ""
+    def test_score_clamped_to_tier_window(self):
+        # 档位锚点=该档边界：友好上界 0.6；热情下界 1.8（上界交给 max_abs_delta）
+        r = self.parse("档位:友好\n分值:1.5\n证据:「谢谢你帮我」")
+        assert r.delta == 0.6
+        r2 = self.parse("档位:热情\n分值:2.9\n证据:「爱你」")
+        assert r2.delta == 2.9  # 热情区间 (1.8, 3.0]：2.9 保留
+        r3 = self.parse("档位:热情\n分值:1.0\n证据:「爱你」")
+        assert r3.delta == 1.8  # 低于热情下界 → 抬到 1.8
+
+    def test_score_direction_mismatch_uses_tier(self):
+        # 档位敌意但分值为正 → 以档位为准，取敌意区间值
+        r = self.parse("档位:敌意\n分值:1.0\n证据:「蠢」")
+        assert r.delta < 0
+
+    def test_neutral_forces_zero(self):
+        # 中性档位：分值强制 0（即使模型给了分）
+        r = self.parse("档位:中性\n分值:0.5")
+        assert r.tier == "中性" and r.delta == 0
 
     def test_nonneutral_without_evidence_forced_neutral(self):
         # 证据门槛：非中性档位没给证据 → 强制改判中性
-        r = self.parse("档位:友好\n理由:语气不错")
+        r = self.parse("档位:友好\n分值:0.8\n理由:语气不错")
         assert r.tier == "中性" and r.delta == 0
 
     def test_empty_evidence_forced_neutral(self):
-        r = self.parse("档位:敌意\n证据:  \n理由:x")
+        r = self.parse("档位:敌意\n分值:-2.0\n证据:  \n理由:x")
         assert r.tier == "中性" and r.delta == 0
 
-    def test_custom_deltas_and_clamp(self):
-        r = self.parse("档位:敌意\n证据:「蠢」", {"敌意": -9}, max_abs_delta=3)
-        assert r.delta == -3  # 钳到 max_abs_delta
+    def test_score_missing_uses_tier_anchor(self):
+        # 只给档位没给分值 → 用档位锚点
+        r = self.parse("档位:友好\n证据:「谢谢你」")
+        assert r.delta == 0.6
 
-    def test_unknown_tier_no_match(self):
+    def test_max_abs_clamp(self):
+        # 敌意锚放宽到 -9 后区间变宽，-2.9 在区间内且在 max_abs=3 内 → 原样
+        r = self.parse("档位:敌意\n分值:-2.9\n证据:「蠢」", {"敌意": -9}, max_abs_delta=3)
+        assert r.delta == -2.9
+        # max_abs=2 时被总上限钳制
+        r2 = self.parse("档位:敌意\n分值:-2.9\n证据:「蠢」", {"敌意": -9}, max_abs_delta=2)
+        assert r2.delta == -2.0
+
+    def test_unknown_format_no_match(self):
         assert self.parse("我觉得还行吧") is None
 
     def test_legacy_format_friendly(self):
-        # 旧协议兼容：态度:友好 分值:0.8 → 友好档（分值低于热情阈值）
+        # 旧协议兼容：态度+分值 → 档位定性、分值按区间钳制
         r = self.parse("态度:友好\n分值:0.8")
-        assert r.tier == "友好" and r.delta == 0.6
+        assert r.tier == "友好" and 0 < r.delta <= 0.6
 
     def test_legacy_format_hostile(self):
         r = self.parse("态度:敌意\n分值:-2.9")

@@ -23,7 +23,6 @@ from .api import commands as cmd
 from .api import llm_tools as tools
 from .api.facade import XinxianFacade
 from .api.listeners import Deps, on_group_message, on_llm_request
-from .core.events import RuleMatcher
 from .core.identity import parse_master_ids
 from .core.judge_parse import DEFAULT_ATTITUDE_DELTAS
 from .core.level_economy import EconomyConfig
@@ -50,7 +49,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.20.0",
+    "1.21.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -152,7 +151,6 @@ class XinxianPlugin(Star):
             favor=self._favor,
             judge=self._judge,
             inject=self._inject,
-            matcher=RuleMatcher.from_config(config),
             inject_enabled=bool(inject_cfg.get("enabled", True)),
             memory_count=int(inject_cfg.get("memory_count", 3)),
             memory_days=int(inject_cfg.get("memory_days", 7)),
