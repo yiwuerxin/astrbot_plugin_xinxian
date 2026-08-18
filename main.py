@@ -73,6 +73,7 @@ class XinxianPlugin(Star):
         decay_cfg = config.get("decay") or {}
         rel_cfg = config.get("relationship") or {}
         economy_cfg = config.get("economy") or {}
+        impression_cfg = config.get("impression") or {}
         relationships = (
             RelationshipTable.from_config(rel_cfg)
             if bool(rel_cfg.get("enabled", False))
@@ -101,7 +102,6 @@ class XinxianPlugin(Star):
 
         judge_cfg = config.get("judge") or {}
         inject_cfg = config.get("inject") or {}
-        impression_cfg = config.get("impression") or {}
 
         # 五档分值映射：配置键（拼音）→ 档位名（中文）
         ad_raw = judge_cfg.get("attitude_deltas") or {}
