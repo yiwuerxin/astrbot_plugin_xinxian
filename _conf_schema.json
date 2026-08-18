@@ -40,7 +40,7 @@
       "only_when_at_or_reply": { "type": "bool", "default": true, "description": "仅在@或回复小千时才评估（省成本）" },
       "narrative_reason": { "type": "bool", "default": false, "description": "开启后强制用当前会话（主）模型评估，并按小千口吻写变动理由（仅分值非 0 时），写入流水供面板查看，更符合人格" },
       "context_window": { "type": "int", "default": 0, "description": "评估时带入最近 N 条会话消息作为上下文（仅文本，图片忽略），便于结合语境判断（如识别反讽）。0=不带上下文（最省 token）" },
-      "roster": { "type": "text", "default": "", "description": "群成员花名册（注入评估提示词，让评审知道外号↔QQ 映射，避免把熟人玩笑误判为敌意）。每行一条，如：好m=1109841333（主人M的外号）；留空关闭" },
+      "roster": { "type": "text", "default": "", "description": "群成员花名册（注入评估提示词，让评审知道外号↔QQ 映射，避免把熟人玩笑误判为敌意）。每行一条，如：阿狸=123456789（群友外号示例）；留空关闭" },
       "follow_persona": { "type": "bool", "default": true, "description": "评估提示词跟随 AstrBot 当前人格：切换人格后，评审按该人格的名字与人设判断态度（如小千 vs 其他角色）。关闭则固定用下面的 bot_name" },
       "bot_name": { "type": "string", "default": "小千", "description": "未开启 follow_persona 或解析不到人格时的兜底称呼" },
       "attitude_deltas": {

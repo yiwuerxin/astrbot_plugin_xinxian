@@ -58,12 +58,12 @@ class TestLevelTable:
 
 class TestIdentity:
     def test_parse(self):
-        assert parse_master_ids("1109841333, 222，333") == ["1109841333", "222", "333"]
+        assert parse_master_ids("123456789, 222，333") == ["123456789", "222", "333"]
         assert parse_master_ids("") == []
 
     def test_is_master(self):
-        assert is_master("1109841333", ["1109841333"])
-        assert not is_master("999", ["1109841333"])
+        assert is_master("123456789", ["123456789"])
+        assert not is_master("999", ["123456789"])
 
 
 # ---------------- 关系类型 ----------------
@@ -860,14 +860,14 @@ class TestRosterRender:
 
         assert roster_block("") == ""
         assert roster_block("  ") == ""
-        r = roster_block("好m=1109841333（主人M的外号）")
-        assert r.startswith("群成员花名册") and "好m=1109841333" in r
+        r = roster_block("阿狸=123456789（群友外号示例）")
+        assert r.startswith("群成员花名册") and "阿狸=123456789" in r
 
     def test_render_with_roster(self):
         from astrbot_plugin_xinxian.core.judge_prompt import render
 
         tpl = "评审。{roster}原话：「{text}」"
-        out = render(tpl, text="hi", persona_name="小千", roster="好m=1109841333")
+        out = render(tpl, text="hi", persona_name="小千", roster="阿狸=123456789")
         assert "花名册" in out and "原话：「hi」" in out
         # 空花名册：段落自然消失
         out2 = render(tpl, text="hi", persona_name="小千", roster="")
