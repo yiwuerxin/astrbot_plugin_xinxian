@@ -51,12 +51,14 @@ class LevelDef:
         min_score: 进入该等级的最低分（含）。
         max_score: 该等级最高分（含），-1 表示无上限。
         guidance: 注入提示词用的态度指引文本。
+        master_guidance: 主人专属态度指引；空串表示无，回落普通 guidance。
     """
 
     name: str
     min_score: float
     max_score: float
     guidance: str
+    master_guidance: str = ""
 
 
 @dataclass

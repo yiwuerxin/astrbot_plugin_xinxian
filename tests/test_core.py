@@ -53,6 +53,29 @@ class TestLevelTable:
         assert table.level_of(49).name == "认识"
         assert table.level_of(50).name == "友好"
 
+    def test_master_guidance_defaults(self):
+        # 主人版指引：低好感＝赌气别扭语义，高好感＝亲昵依恋语义
+        assert "别扭" in self.table.guidance_of(-50, master=True)   # 厌恶
+        assert "低头" in self.table.guidance_of(5, master=True)    # 陌生
+        assert "来哄" in self.table.guidance_of(14.6, master=True) # 认识
+        assert "撒娇" in self.table.guidance_of(40, master=True)   # 友好
+        assert "黏人" in self.table.guidance_of(60, master=True)   # 亲密
+        assert "护主人" in self.table.guidance_of(85, master=True) # 挚友
+        assert "毫无保留" in self.table.guidance_of(99, master=True) # 挚爱
+
+    def test_master_guidance_off_for_normal_members(self):
+        # 非主人：master=False 用普通指引，不含主人语义
+        assert self.table.guidance_of(14.6, master=False) == "友善客气，像刚认识的朋友"
+        assert "主人" not in self.table.guidance_of(60, master=False)
+
+    def test_master_guidance_custom(self):
+        table = LevelTable.from_config(
+            {"levels": {"renshi": {"master_guidance": "主人的专属冷战文案"}}}
+        )
+        assert table.guidance_of(20, master=True) == "主人的专属冷战文案"
+        # 未自定义的等级回落默认主人指引
+        assert "黏人" in table.guidance_of(60, master=True)
+
 
 # ---------------- 身份 ----------------
 
@@ -172,6 +195,17 @@ class TestInject:
         )
         block = inj.build_block(FavorRecord("g", "u", 50), is_master=True)
         assert "，主人大人请受我一拜" in block  # {master_title} 替换
+
+    def test_block_master_guidance_switch(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        inj = InjectService(LevelTable.from_config(None), "{level_guidance}")
+        rec = FavorRecord("g", "u", 14.6)  # 认识级
+        block_m = inj.build_block(rec, is_master=True)
+        assert "来哄" in block_m  # 主人版指引
+        assert "像刚认识的朋友" not in block_m  # 不再照搬外人措辞
+        # 非主人保持原文指引
+        assert "像刚认识的朋友" in inj.build_block(rec, is_master=False)
 
 
 # ---------------- 好感度增减（内存级 SQLite） ----------------

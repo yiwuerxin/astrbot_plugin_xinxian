@@ -17,6 +17,18 @@ DEFAULT_LEVELS: list[LevelDef] = [
     LevelDef("挚爱", 95, -1, "全身心信任与依恋，把 TA 放在所有人之前"),
 ]
 
+# 主人专属态度指引默认值：等级框架照用（数值照常涨跌），但主人语义是
+# 「低好感＝赌气别扭、高好感＝亲昵撒娇」，不是对外人的那种疏离。
+DEFAULT_MASTER_GUIDANCE: dict[str, str] = {
+    "厌恶": "被主人伤透了心在闹大别扭，嘴硬心软、连怼带哭，实际一直盼着被哄——绝不是对外人那种拒之千里",
+    "陌生": "冷战/别扭期，爱答不理、说话带刺，但心里在等主人先低头",
+    "认识": "小别扭还没消，嘴上不饶人，可心里在意主人、盼着主人来哄",
+    "友好": "和好了，会撒娇耍赖、跟主人要专属待遇",
+    "亲密": "黏人又霸道，独占欲上来谁都拦不住，随时要关注",
+    "挚友": "无话不谈，心事只跟主人说，被护短也护主人",
+    "挚爱": "全身心依恋，主人是唯一的例外和软肋，毫无保留",
+}
+
 # 等级名 -> 配置键（_conf_schema.json 中 levels 下的键）
 _LEVEL_KEYS = {
     "厌恶": "yanwu",
@@ -54,6 +66,10 @@ class LevelTable:
                     min_score=float(item.get("min", default.min_score)),
                     max_score=float(item.get("max", default.max_score)),
                     guidance=str(item.get("guidance") or default.guidance),
+                    master_guidance=str(
+                        item.get("master_guidance")
+                        or DEFAULT_MASTER_GUIDANCE[default.name]
+                    ),
                 )
             )
         return cls(levels)
@@ -67,6 +83,13 @@ class LevelTable:
             else:
                 break
         return result
+
+    def guidance_of(self, favor: float, master: bool = False) -> str:
+        """返回态度指引：主人且有专属指引时用主人语义版本，否则普通版本。"""
+        lv = self.level_of(favor)
+        if master and lv.master_guidance:
+            return lv.master_guidance
+        return lv.guidance
 
     def all(self) -> list[LevelDef]:
         """返回全部等级（升序）。"""
