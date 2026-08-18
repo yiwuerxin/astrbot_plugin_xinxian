@@ -860,7 +860,7 @@ class TestRosterRender:
 
         assert roster_block("") == ""
         assert roster_block("  ") == ""
-        r = roster_block("阿狸=123456789（某群友的外号）")
+        r = roster_block("阿狸=123456789（群友外号示例）")
         assert r.startswith("群成员花名册") and "阿狸=123456789" in r
 
     def test_render_with_roster(self):

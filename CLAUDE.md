@@ -70,31 +70,30 @@ Strict one-way layering: `main.py` → `api/` → `services/` → `core/` + `sto
 
 `_conf_schema.json` defines all WebUI-editable config (read defaults/types there; don't hardcode). `core/levels.py::LevelTable.from_config` and `core/relationship.py::RelationshipTable.from_config` each fall back to built-in defaults for any missing key, so partial config is always valid. Note the `_LEVEL_KEYS` map translates the Chinese level names (厌恶/陌生/…) to their pinyin config keys (yanwu/mosheng/…).
 
-## Development workflow (this host)
+## Development workflow
 
-Two trees exist on this host — keep their roles straight:
-
-- **Git working copy** (where changes are made): `<git-working-copy>` — NOT inside a running AstrBot tree. Local `main` tracks `origin/main` = `https://github.com/yiwuerxin/astrbot_plugin_xinxian.git`. **All changes are delivered as PRs to that repo** — never commit directly to `main`.
-- **Production runtime**: Docker container `astrbot` (`soulter/astrbot:latest`, AstrBot 4.26.7) bind-mounts host `<astrbot-data>` → `/AstrBot/data`, so the live plugin dir is host `<astrbot-data>/plugins/astrbot_plugin_xinxian` (= container path `/AstrBot/data/plugins/astrbot_plugin_xinxian`). It is a plain file copy, **not** a git repo. Live SQLite data: `<astrbot-data>/plugin_data/astrbot_plugin_xinxian/xinxian.db` (WAL active — never copy over it; only sync code files).
-
-Workflow for every change:
-
-1. Branch from `main` in the git copy using the repo's convention: `feat/<scope>-<topic>` / `fix/<topic>` / `chore/<topic>` (see history: `feat/webui-chisaki-theme`, `fix/undo-get-modal`).
+1. Branch from `main` using the repo's convention: `feat/<scope>-<topic>` / `fix/<topic>` / `chore/<topic>` (see history: `feat/webui-chisaki-theme`, `fix/undo-get-modal`).
 2. Make changes, run `pytest tests/ -q` (must stay green), commit with conventional-style Chinese summaries (`feat(webui): …`, `fix(inject): …`).
-3. Push with `git push -u origin <branch>` — credentials come from a local credential helper reading `tokens.txt` in the repo root (gitignored, never commit it); `~/.git-credentials` also has GitHub entries.
-4. Open the PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …") and **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`).
-5. **Deploy to production — only after the owner's merge lands on origin/main** (fetch via mirror, fast-forward local main, then deploy): sync code files from the git copy into the production dir (rsync is unavailable on this host; use `cp`/`tar`, excluding `.git __pycache__ .pytest_cache .mimosa tokens.txt`), then reload the plugin (AstrBot WebUI 插件管理 → 重载, or `docker restart astrbot` as last resort — the bot is live, prefer plugin reload). Never touch `xinxian.db*`.
+3. Push the branch and open a PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …"), then **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait.
+4. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`), keeping the `@register(...)` string in `main.py` in sync (both read `1.23.0` since #36).
 
-Version-number caveat: `metadata.yaml` is the source of truth; keep the `@register(...)` string in `main.py` in sync when bumping (both read `1.23.0` since #36).
+Host-specific details — working-copy/production directory layout, deploy procedure, credentials location, network quirks, and the current pending-deploy state — live in **`CLAUDE.local.md`**, which is gitignored. **Never commit that file or anything from it.**
 
 An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave it out of commits.
+
+## Content policy — this repo is public
+
+Other users install this plugin. Before every commit, check the diff for:
+
+- **Real user data**: QQ numbers, nicknames/外号, group IDs, chat excerpts. Examples in README / `_conf_schema.json` / code comments / tests must use obvious placeholders (`123456789`, `阿狸`).
+- **Credentials & infra**: tokens, host paths, server/container layout, deploy runbooks, production state. These belong in `CLAUDE.local.md` only.
 
 ## Conventions to preserve
 
 - Injection is **append-only** to `system_prompt`; master identity trusts QQ number only, never nickname (`core/identity.py`); master status is a text overlay in the injected profile, it does not alter the numeric logic.
 - The judge protocol (v1.21) is **tier-anchored free-scoring**: the model outputs a tier (`敌意/冷淡/中性/友好/热情`), its own numeric `分值`, and a mandatory verbatim `证据:` quote for any non-neutral tier. The score IS the model's judgment; the tier only bounds it — `core/judge_parse.py::parse` clamps the score into the tier's window (each tier's anchor in `judge.attitude_deltas` is its boundary: 友好 ≤0.6, 热情 ≥1.8, etc.), corrects direction mismatches to the tier's anchor, and force-demotes evidence-less non-neutral verdicts to neutral. Legacy `态度:/分值:` output is auto-mapped for backward compat; `max_abs_delta` is the global ceiling. `narrative_reason` forces the session (main) model and switches to `judge_prompt_narrative.txt` (adds a `理由:` line); otherwise a separate cheap `provider_id` (or session fallback) is used. `context_window` pulls recent text-only conversation turns into the judge call. **The judge prompt follows the AstrBot persona**: `JudgeService._persona_ctx` resolves the session's effective persona (conv.persona_id → `persona_manager.resolve_selected_persona`, same source as the main chain) per evaluation; templates get `{persona_name}` and `{persona_block}` (persona summary, ≤500 chars, empty-safe) via `core/judge_prompt.py::render`. Legacy custom templates containing only `{text}` keep working (`judge.follow_persona` = false pins it to `judge.bot_name`).
 - **Member impressions & tags** (v1.22, `core/impression.py` + `impression.*` config): every N effective judge deltas (default 8) `FavorService.maybe_refresh_impression` fires a background task that summarizes that member's last 20 judge log rows via one cheap LLM call (borrowing `JudgeService._resolve_provider`/`_bot_name` through `bind_summarizer`) into a one-line impression (≤80 chars) + ≤3 tags; deterministic `stats_tags` (常客/夜猫子/热情/毒舌) supplement LLM tags. Stored in the v7 columns, injected as `{impression}` (「TA 给你的印象」 block, empty-safe) in the inject template, shown in the WebUI users table + member-detail modal (`member`/`refresh_impression` endpoints) and editable via `/印象设置` (tags) / `/印象刷新` (immediate). All failures are silent — impressions are an enhancement, never a dependency.
-- **Judge context extraction** (`core/judge_context.py::extract_history_text`): AstrBot 4.26 conversation history stores assistant replies as structured lists (`[{type:'think'|'text',...}]`); only `type=='text'` segments are extracted (think/images/tool calls skipped). `judge.roster` (free text, one mapping per line like `阿狸=123456789（某群友的外号）`) is injected into judge prompts via `{roster}` so the judge can resolve nicknames — set it in config when group members use 外号.
+- **Judge context extraction** (`core/judge_context.py::extract_history_text`): AstrBot 4.26 conversation history stores assistant replies as structured lists (`[{type:'think'|'text',...}]`); only `type=='text'` segments are extracted (think/images/tool calls skipped). `judge.roster` (free text, one mapping per line like `阿狸=123456789（群友外号示例）`) is injected into judge prompts via `{roster}` so the judge can resolve nicknames — set it in config when group members use 外号.
 - **Anti-inflation economy** (`core/level_economy.py`, config `economy.*`, on by default, judge path only): noise floor (|delta| < 0.5 → 0), negative weight ×1.5 (negativity bias), stage multipliers on positive deltas only (挚爱 0.2 … 认识 1.0 — social penetration: shallow interactions can't advance deep stages), and same-day repeat decay (Nth positive judge of the day × max(0.25, 1-0.25·N)). Applied inside `FavorService.apply_judge` before the daily cap; zeroed deltas produce no log row. Cross-plugin `change` bypasses this layer. `daily_cap_up` default 4 / `daily_cap_down` 8. The rule engine (daily_first bonus) was **removed in v1.21** — `core/events.py`, `apply_rules`, `is_first_today`, and the `rules.*` config section are gone; favor now changes only via judge/API/admin/undo.
 - `text_wake` lets a plain (non-`/`) message trigger the ranking image when it exactly matches a configured phrase; the `_xinxian_cmd_done` flag on the event prevents the `/` command and the wake path from both firing.
 - Prompt templates live in `resources/prompts/` and are loaded once via `_read_resource` in `main.py`; a non-empty `inject.template` config overrides the bundled `inject_template.txt`.
@@ -112,8 +111,4 @@ An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave 
 
 Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
 
-**Pending (2026-08-18, post-merge):**
-- #35/#36/#37 all merged; local main fast-forwarded to `176b3b7` (v1.23.0). **Production still runs 1.22.0** — next deploy: sync code files into `<astrbot-data>/plugins/astrbot_plugin_xinxian`, reload plugin (or restart container as last resort), v8 migration (`half_life` column) auto-runs on startup.
-- Production config's `decay` section still uses the pre-1.23 keys (`enabled: true`, `per_day`, `grace_days`) — **decay was already ON in production under the old linear semantics** (1.22 had its own decay; "production decay-off" was wrong). 1.23 code silently ignores the old keys: leaving them means decay stays on with default half-life params (10/1.3/60). On deploy, replace the section with `half_life_base`/`half_life_growth`/`half_life_max` and **confirm with the owner that decay stays on under the new continuous Ebbinghaus semantics** (no more grace-period cliff; even daily chatters decay ~1.1%/day at cap).
-- Impressions (v1.22) live in production schema; whether any member has one yet is unverified (`/印象刷新 <QQ>` forces one). `judge.roster` draft is in production config (阿狸=123456789, 示例群友 entry) — owner may want to extend it.
-- Network: `github.com` 443 reachable again as of 2026-08-18 (plain `git fetch`/`git push` work); keep the `https://gh-proxy.com/https://github.com/...` mirror as fallback. PR/merge API via `api.github.com` direct. `gh` CLI lacks `read:org` scope — use raw curl with the token from `tokens.txt`.
+Current pending state (deploy plans, production config) lives in `CLAUDE.local.md` — not in this file, which is public.

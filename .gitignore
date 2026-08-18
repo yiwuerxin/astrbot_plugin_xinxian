@@ -11,3 +11,6 @@ tokens.txt
 *.token
 .env*
 
+# 本机私有备忘（生产/凭据/待办），切勿提交
+CLAUDE.local.md
+

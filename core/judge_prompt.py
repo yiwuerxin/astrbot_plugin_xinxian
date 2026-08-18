@@ -24,7 +24,7 @@ def persona_block(persona_prompt: str, max_chars: int = _PERSONA_SNIPPET_MAX) ->
 def roster_block(roster: str) -> str:
     """花名册配置 → 模板引用段；空返回空串。
 
-    roster 是自由文本（如「阿狸=123456789（某群友的外号）」逐行/分号分隔），
+    roster 是自由文本（如「阿狸=123456789（群友外号示例）」逐行/分号分隔），
     原样透传给模板，让评审模型知道外号↔QQ 的映射与群成员常识。
     """
     r = (roster or "").strip()
