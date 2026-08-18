@@ -1,6 +1,6 @@
 """心弦好感度 - 事件监听 handler。
 
-on_group_message：规则匹配 + 触发 LLM 评估（好感度变化的两个引擎）。
+on_group_message：触发 LLM 评估（好感度变化的唯一自动引擎）。
 on_llm_request：向 system_prompt 注入好感度档案。
 身份一律从事件取（get_sender_id/get_group_id），不解析任何注入文本。
 """
@@ -14,7 +14,6 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
 from ..core.decimal import fmt
-from ..core.events import RuleMatcher
 from ..services.favor_service import FavorService
 from ..services.inject_service import InjectService
 from ..services.judge_service import JudgeService
@@ -32,7 +31,6 @@ class Deps:
     favor: FavorService
     judge: JudgeService
     inject: InjectService
-    matcher: RuleMatcher
     inject_enabled: bool = True
     memory_count: int = 3
     memory_days: int = 7
@@ -53,7 +51,7 @@ def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
 
 
 async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
-    """群消息入口：规则引擎 + 评估引擎。"""
+    """群消息入口：评估引擎（唯一自动引擎，内部自行判断开关/冷却/降级）。"""
     group_id, user_id = event.get_group_id(), event.get_sender_id()
     if not group_id or not user_id:
         return
@@ -70,17 +68,6 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
 
     text = event.message_str or ""
     has_at_bot, is_reply_bot = _chain_flags(event)
-
-    # 规则引擎（仅当日首次互动）
-    is_first = await deps.favor.is_first_today(group_id, user_id)
-    rules = deps.matcher.match(is_first_today=is_first)
-    if rules:
-        change = await deps.favor.apply_rules(group_id, user_id, rules)
-        if change.delta:
-            logger.info(
-                f"[心弦] {group_id}/{user_id} 规则[{change.reason}] "
-                f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
-            )
 
     # 评估引擎（内部自行判断开关/冷却/降级）
     result = await deps.judge.judge(
