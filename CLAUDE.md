@@ -67,8 +67,8 @@ Workflow for every change:
 1. Branch from `main` in the git copy using the repo's convention: `feat/<scope>-<topic>` / `fix/<topic>` / `chore/<topic>` (see history: `feat/webui-chisaki-theme`, `fix/undo-get-modal`).
 2. Make changes, run `pytest tests/ -q` (must stay green), commit with conventional-style Chinese summaries (`feat(webui): …`, `fix(inject): …`).
 3. Push with `git push -u origin <branch>` — credentials come from a local credential helper reading `tokens.txt` in the repo root (gitignored, never commit it); `~/.git-credentials` also has GitHub entries.
-4. Open the PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …"), then merge after review. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`).
-5. **Deploy to production**: sync code files from the git copy into the production dir (rsync is unavailable on this host; use `cp`/`tar`, excluding `.git __pycache__ .pytest_cache .mimosa tokens.txt`), then reload the plugin (AstrBot WebUI 插件管理 → 重载, or `docker restart astrbot` as last resort — the bot is live, prefer plugin reload). Never touch `xinxian.db*`.
+4. Open the PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …") and **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`).
+5. **Deploy to production — only after the owner's merge lands on origin/main** (fetch via mirror, fast-forward local main, then deploy): sync code files from the git copy into the production dir (rsync is unavailable on this host; use `cp`/`tar`, excluding `.git __pycache__ .pytest_cache .mimosa tokens.txt`), then reload the plugin (AstrBot WebUI 插件管理 → 重载, or `docker restart astrbot` as last resort — the bot is live, prefer plugin reload). Never touch `xinxian.db*`.
 
 Version-number caveat: `metadata.yaml` is the source of truth; the `@register(...)` string in `main.py` currently lags behind (`1.17.0` vs metadata `1.18.0`) — keep them in sync when bumping.
 
