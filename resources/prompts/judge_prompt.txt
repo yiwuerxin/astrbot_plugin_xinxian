@@ -1,6 +1,6 @@
 你是情绪评估器。群聊里有人对机器人「{persona_name}」说了下面这句话，请评估说话人对{persona_name}的态度。
 
-{persona_block}原话：「{text}」
+{persona_block}{roster}原话：「{text}」
 
 ## 档位定义（先定性）
 

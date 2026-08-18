@@ -49,7 +49,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.21.0",
+    "1.22.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -96,10 +96,12 @@ class XinxianPlugin(Star):
             decay_baseline=float(decay_cfg.get("baseline", 0.0)),
             relationships=relationships,
             economy=eco,
+            impression_interval=int(impression_cfg.get("interval", 8)),
         )
 
         judge_cfg = config.get("judge") or {}
         inject_cfg = config.get("inject") or {}
+        impression_cfg = config.get("impression") or {}
 
         # 五档分值映射：配置键（拼音）→ 档位名（中文）
         ad_raw = judge_cfg.get("attitude_deltas") or {}
@@ -146,6 +148,7 @@ class XinxianPlugin(Star):
             follow_persona=bool(judge_cfg.get("follow_persona", True)),
             bot_name=(judge_cfg.get("bot_name") or "").strip() or "小千",
             attitude_deltas=attitude_deltas,
+            roster=(judge_cfg.get("roster") or "").strip(),
         )
         self._deps = Deps(
             favor=self._favor,
@@ -162,6 +165,9 @@ class XinxianPlugin(Star):
         render_cfg = config.get("render") or {}
         self._render_font = (render_cfg.get("font_path") or "").strip()
         self._render_rows = int(render_cfg.get("rows_per_col", 12))
+
+        # 印象汇总借用 JudgeService 的 provider 解析（模型/人格与评审同源）
+        self._favor.bind_summarizer(self._judge)
 
         # 跨插件 API：context.get_registered_star("astrbot_plugin_xinxian").star_cls.api
         self.api = XinxianFacade(self._favor)
@@ -227,6 +233,18 @@ class XinxianPlugin(Star):
         yield event.plain_result(
             await cmd.handle_set_relationship(self._favor, self._relationships, event, target, key)
         )
+
+    @filter.command("印象设置")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def _cmd_set_tags(self, event: AstrMessageEvent, target: str = "", tags: str = ""):
+        """设置成员标签（管理员）。用法：/印象设置 QQ号 标签1,标签2"""
+        yield event.plain_result(await cmd.handle_set_tags(self._favor, event, target, tags))
+
+    @filter.command("印象刷新")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def _cmd_refresh_imp(self, event: AstrMessageEvent, target: str = ""):
+        """立即刷新成员印象（管理员）。用法：/印象刷新 QQ号"""
+        yield event.plain_result(await cmd.handle_refresh_impression(self._favor, event, target))
 
     # ---------------- LLM 工具 ----------------
 

@@ -373,6 +373,48 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .xx-muted-text { color: var(--xx-ink-3); font-size: 12px; }
 
+/* ---- 印象/标签列与成员详情 ---- */
+.xx-imp-cell { max-width: 220px; }
+.xx-imp { display: flex; flex-direction: column; gap: 4px; }
+.xx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.xx-chip {
+  display: inline-flex; align-items: center;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; line-height: 18px;
+  color: var(--xx-accent-deep);
+  background: var(--xx-accent-soft);
+  border: 1px solid #e7c6cc;
+}
+.xx-imp-text {
+  margin: 0; font-size: 12px; line-height: 1.5;
+  color: var(--xx-ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: default;
+}
+.xx-member-stats {
+  display: flex; gap: 20px; align-items: center;
+  padding: 10px 16px; margin-top: 10px;
+  background: var(--xx-bg);
+  border: 1px solid var(--xx-line);
+  border-radius: 10px;
+}
+.xx-member-stat { display: flex; flex-direction: column; gap: 3px; }
+.xx-member-stat label { font-size: 11px; color: var(--xx-ink-3); }
+.xx-member-stat b { font-size: 16px; }
+.xx-judge-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 220px; overflow-y: auto;
+}
+.xx-judge-list li {
+  display: flex; gap: 10px; align-items: baseline;
+  font-size: 13px; line-height: 1.5;
+  padding-bottom: 8px; border-bottom: 1px dashed var(--xx-line);
+}
+.xx-judge-list li:last-child { border-bottom: none; padding-bottom: 0; }
+.xx-judge-list .xx-mono { font-size: 11px; color: var(--xx-ink-3); flex-shrink: 0; }
+.xx-judge-reason { color: var(--xx-ink-2); word-break: break-word; }
+
 @media (prefers-reduced-motion: reduce) {
   .xx-page * { transition: none !important; }
 }

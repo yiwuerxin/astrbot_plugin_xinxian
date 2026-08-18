@@ -32,6 +32,8 @@ class PageApi:
         reg(f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表")
         reg(f"/{PLUGIN_NAME}/users", self.handle_users, ["GET"], "心弦 当前好感总览")
         reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["GET"], "心弦 撤销/预览一次变动")
+        reg(f"/{PLUGIN_NAME}/member", self.handle_member, ["GET"], "心弦 成员详情（印象/标签/近期评审）")
+        reg(f"/{PLUGIN_NAME}/refresh_impression", self.handle_refresh_impression, ["GET"], "心弦 立即刷新成员印象")
 
     # ---------------- handlers ----------------
 
@@ -62,6 +64,48 @@ class PageApi:
             limit = max(1, min(int(request.args.get("limit", 500)), 2000))
             users = await self._favor.standings(group_id, limit)
             return jsonify({"success": True, "users": users, "count": len(users)})
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"success": False, "error": str(e)})
+
+    async def handle_member(self):
+        """成员详情：?group_id=&user_id= → 基础信息 + 印象/标签 + 最近 judge 理由。"""
+        try:
+            group_id = (request.args.get("group_id") or "").strip()
+            user_id = (request.args.get("user_id") or "").strip()
+            if not group_id or not user_id:
+                return jsonify({"success": False, "error": "缺少 group_id/user_id"})
+            rec = await self._favor.get(group_id, user_id)
+            logs = await self._storage.query_logs(group_id, user_id, limit=30)
+            judged = [r for r in logs if r.get("source") == "judge"][:10]
+            return jsonify({"success": True, "member": {
+                "group_id": group_id,
+                "user_id": user_id,
+                "nickname": rec.nickname or "",
+                "favor": rec.favor,
+                "level": self._favor.level_of(rec.favor).name,
+                "relationship": self._favor.relationship_label(rec.relationship) if rec.relationship else "",
+                "is_master": self._favor.is_master(user_id),
+                "impression": rec.impression or "",
+                "tags": rec.parsed_tags(),
+                "impression_at": rec.impression_at,
+                "recent_judges": [
+                    {"ts": r.get("ts"), "delta": r.get("delta"),
+                     "reason": r.get("reason") or "", "message": r.get("message") or ""}
+                    for r in judged
+                ],
+            }})
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"success": False, "error": str(e)})
+
+    async def handle_refresh_impression(self):
+        """立即刷新成员印象：?group_id=&user_id=（与 undo 同为 GET 副作用风格）。"""
+        try:
+            group_id = (request.args.get("group_id") or "").strip()
+            user_id = (request.args.get("user_id") or "").strip()
+            if not group_id or not user_id:
+                return jsonify({"success": False, "error": "缺少 group_id/user_id"})
+            msg = await self._favor.refresh_impression_now(group_id, user_id)
+            return jsonify({"success": not msg.startswith(("刷新失败", "模型")), "message": msg})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
 
