@@ -85,7 +85,7 @@ Workflow for every change:
 4. Open the PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …") and **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`).
 5. **Deploy to production — only after the owner's merge lands on origin/main** (fetch via mirror, fast-forward local main, then deploy): sync code files from the git copy into the production dir (rsync is unavailable on this host; use `cp`/`tar`, excluding `.git __pycache__ .pytest_cache .mimosa tokens.txt`), then reload the plugin (AstrBot WebUI 插件管理 → 重载, or `docker restart astrbot` as last resort — the bot is live, prefer plugin reload). Never touch `xinxian.db*`.
 
-Version-number caveat: `metadata.yaml` is the source of truth; the `@register(...)` string in `main.py` currently lags behind (`1.17.0` vs metadata `1.18.0`) — keep them in sync when bumping.
+Version-number caveat: `metadata.yaml` is the source of truth; keep the `@register(...)` string in `main.py` in sync when bumping (both read `1.23.0` since #36).
 
 An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave it out of commits.
 
@@ -107,11 +107,13 @@ An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave 
 | 1.20.0 | #30 | five-tier free-scored judge + anti-inflation economy (noise floor / negative weight / stage multipliers / same-day decay); caps 4/8 |
 | 1.21.0 | #33 | rule engine **removed** (daily_first gone); tier-anchored free scoring with evidence gate |
 | 1.22.0 | #34 | member impressions & tags (schema v7, WebUI impression column + member modal + `/印象设置` `/印象刷新`); judge context extraction fix (4.26 structured history); `judge.roster` nickname map |
-| 1.23.0 | #36 (**open, awaiting owner merge**) | Ebbinghaus-style decay: `effective = baseline + (stored−baseline)·0.5^(idle/h)`, per-member half-life (schema v8, base 10d, ×1.3 per positive interaction, max 60d) |
+| 1.23.0 | #36 | Ebbinghaus-style decay: `effective = baseline + (stored−baseline)·0.5^(idle/h)`, per-member half-life (schema v8, base 10d, ×1.3 per positive interaction, max 60d) |
+| — | #37 | docs sync: README 目录/测试数对齐，CLAUDE 版本历史与待办 |
 
 Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
 
-**Pending at last session end:**
-- PR #36 (decay) **and** PR #35 (one-line `impression_cfg` ordering hotfix) awaiting owner merge on GitHub. After both merge: sync main → deploy to production dir → v8 migration auto-runs → replace production `decay` config section (old keys `per_day`/`grace_days` are gone; new keys `half_life_base`/`half_life_growth`/`half_life_max`) → **ask the owner whether to enable `decay.enabled=true`** (production currently decay-off) → restart container, verify `1.23.0` loads.
-- v1.22 is live in production; impressions exist in schema but no member has one yet (needs `/印象刷新 <QQ>` or 8 accumulated judge deltas). `judge.roster` draft is in production config (好m=1109841333, 小咕嘎 entry) — owner may want to extend it.
-- Network quirk on this host: `github.com` 443 is unreachable; push via `https://gh-proxy.com/https://github.com/...` mirror, PR/merge API via `api.github.com` direct (works). `gh` CLI lacks `read:org` scope — use raw curl with the token from `tokens.txt`.
+**Pending (2026-08-18, post-merge):**
+- #35/#36/#37 all merged; local main fast-forwarded to `176b3b7` (v1.23.0). **Production still runs 1.22.0** — next deploy: sync code files into `/www/server/panel/data/plugins/astrbot_plugin_xinxian`, reload plugin (or restart container as last resort), v8 migration (`half_life` column) auto-runs on startup.
+- Production config's `decay` section still uses the pre-1.23 keys (`enabled: true`, `per_day`, `grace_days`) — **decay was already ON in production under the old linear semantics** (1.22 had its own decay; "production decay-off" was wrong). 1.23 code silently ignores the old keys: leaving them means decay stays on with default half-life params (10/1.3/60). On deploy, replace the section with `half_life_base`/`half_life_growth`/`half_life_max` and **confirm with the owner that decay stays on under the new continuous Ebbinghaus semantics** (no more grace-period cliff; even daily chatters decay ~1.1%/day at cap).
+- Impressions (v1.22) live in production schema; whether any member has one yet is unverified (`/印象刷新 <QQ>` forces one). `judge.roster` draft is in production config (好m=1109841333, 小咕嘎 entry) — owner may want to extend it.
+- Network: `github.com` 443 reachable again as of 2026-08-18 (plain `git fetch`/`git push` work); keep the `https://gh-proxy.com/https://github.com/...` mirror as fallback. PR/merge API via `api.github.com` direct. `gh` CLI lacks `read:org` scope — use raw curl with the token from `tokens.txt`.
