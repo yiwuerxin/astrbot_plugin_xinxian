@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `astrbot_plugin_xinxian`（心弦好感度）is an AstrBot 4.x plugin that maintains a per-user, per-group "favorability" score for a chatbot persona named 小千 (Xiaoqian). All automatic favor changes come from a single engine: an LLM sentiment "judge" (the former deterministic rule engine — daily-first bonus — was removed in v1.21). The current score is injected into the LLM system prompt so the persona's tone tracks closeness (厌恶 → 陌生 → 认识 → 友好 → 亲密 → 挚友 → 挚爱, supporting negative values and one-decimal precision).
 
-Three orthogonal overlays sit on top of the raw number: **level** (cold→warm, from thresholds), **relationship** (friend/lover/family/… — the *role*, independent of warmth), and **master** (a text-only identity marker that never alters numeric logic). Optionally, **time decay** pulls stale scores toward a baseline.
+Three orthogonal overlays sit on top of the raw number: **level** (cold→warm, from thresholds), **relationship** (friend/lover/family/… — the *role*, independent of warmth), and **master** (a text-only identity marker that never alters numeric logic). Optionally, **memory-style time decay** (v1.23, exponential forgetting curve with interaction-consolidated half-life) continuously pulls scores toward a baseline — active chatters decay slowly, silent ones fast. **Member impressions & tags** (v1.22) give 小千 a one-line "who this person is" profile per member, injected into the prompt.
 
 Domain terms, config keys, commands, prompts, and code comments are **Chinese**; code identifiers are English. Match this convention.
 
@@ -16,10 +16,25 @@ No build step and no third-party runtime deps — only the Python standard libra
 
 ```bash
 pip install pytest                 # only test dependency
-pytest tests/ -v                   # run the full suite (51 tests)
+pytest tests/ -v                   # run the full suite (125 tests)
 pytest tests/test_core.py::TestFavorService -v          # one test class
 pytest tests/test_core.py::TestMigration::test_v1_to_v2_round_trip -v   # one test
+python3 - <<'EOF'                  # AST check: no local var used before assignment in __init__ (guards the #31/#35 bug class)
+import ast, sys
+tree = ast.parse(open('main.py', encoding='utf-8').read())
+init = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '__init__')
+assigned = {}
+for node in ast.walk(init):
+    if isinstance(node, ast.Assign):
+        for t in node.targets:
+            if isinstance(t, ast.Name): assigned.setdefault(t.id, node.lineno)
+bad = [n.id for n in ast.walk(init) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+       and n.id in assigned and assigned[n.id] > n.lineno]
+sys.exit("ORDER BUG: %s" % bad if bad else 0)
+EOF
 ```
+
+**Run the AST check before every commit that touches `main.py`** — the #31 and #35 production outages were both UnboundLocalError from config dicts defined after their use site in `__init__`.
 
 Tests are hermetic: they exercise only `core/` and `storage/` (plus `FavorService` and `InjectService`, which transitively import only those), so **they run without AstrBot installed**. `tests/test_core.py` inserts the plugin's parent directory onto `sys.path` and imports as the `astrbot_plugin_xinxian` package, so invoke pytest from anywhere. Do not import `services/judge_service`, `api/`, or `main.py` in tests — those pull in `astrbot` and break hermeticity. (The current test count is **125**; `README.md`'s "18/29" counts are stale — don't "fix" tests downward to match them. On the dev host, `/usr/bin/python3` is PEP-668 managed: `pip3 install pytest --break-system-packages` once, then `python3 -m pytest tests/ -q`.)
 
@@ -83,3 +98,20 @@ An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave 
 - **Anti-inflation economy** (`core/level_economy.py`, config `economy.*`, on by default, judge path only): noise floor (|delta| < 0.5 → 0), negative weight ×1.5 (negativity bias), stage multipliers on positive deltas only (挚爱 0.2 … 认识 1.0 — social penetration: shallow interactions can't advance deep stages), and same-day repeat decay (Nth positive judge of the day × max(0.25, 1-0.25·N)). Applied inside `FavorService.apply_judge` before the daily cap; zeroed deltas produce no log row. Cross-plugin `change` bypasses this layer. `daily_cap_up` default 4 / `daily_cap_down` 8. The rule engine (daily_first bonus) was **removed in v1.21** — `core/events.py`, `apply_rules`, `is_first_today`, and the `rules.*` config section are gone; favor now changes only via judge/API/admin/undo.
 - `text_wake` lets a plain (non-`/`) message trigger the ranking image when it exactly matches a configured phrase; the `_xinxian_cmd_done` flag on the event prevents the `/` command and the wake path from both firing.
 - Prompt templates live in `resources/prompts/` and are loaded once via `_read_resource` in `main.py`; a non-empty `inject.template` config overrides the bundled `inject_template.txt`.
+
+## Version history & current state (2026-08-18)
+
+| Version | PR | What |
+|---|---|---|
+| 1.19.0 | #29 | judge prompt follows AstrBot persona (`{persona_name}`/`{persona_block}`); PRAGMA whitelist hardening |
+| 1.20.0 | #30 | five-tier free-scored judge + anti-inflation economy (noise floor / negative weight / stage multipliers / same-day decay); caps 4/8 |
+| 1.21.0 | #33 | rule engine **removed** (daily_first gone); tier-anchored free scoring with evidence gate |
+| 1.22.0 | #34 | member impressions & tags (schema v7, WebUI impression column + member modal + `/印象设置` `/印象刷新`); judge context extraction fix (4.26 structured history); `judge.roster` nickname map |
+| 1.23.0 | #36 (**open, awaiting owner merge**) | Ebbinghaus-style decay: `effective = baseline + (stored−baseline)·0.5^(idle/h)`, per-member half-life (schema v8, base 10d, ×1.3 per positive interaction, max 60d) |
+
+Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
+
+**Pending at last session end:**
+- PR #36 (decay) **and** PR #35 (one-line `impression_cfg` ordering hotfix) awaiting owner merge on GitHub. After both merge: sync main → deploy to production dir → v8 migration auto-runs → replace production `decay` config section (old keys `per_day`/`grace_days` are gone; new keys `half_life_base`/`half_life_growth`/`half_life_max`) → **ask the owner whether to enable `decay.enabled=true`** (production currently decay-off) → restart container, verify `1.23.0` loads.
+- v1.22 is live in production; impressions exist in schema but no member has one yet (needs `/印象刷新 <QQ>` or 8 accumulated judge deltas). `judge.roster` draft is in production config (阿狸=123456789, 示例群友 entry) — owner may want to extend it.
+- Network quirk on this host: `github.com` 443 is unreachable; push via `https://gh-proxy.com/https://github.com/...` mirror, PR/merge API via `api.github.com` direct (works). `gh` CLI lacks `read:org` scope — use raw curl with the token from `tokens.txt`.
