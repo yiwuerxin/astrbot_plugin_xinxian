@@ -17,6 +17,7 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context
 
+from ..core.judge_prompt import render
 from ..storage.base import StorageBackend
 
 
@@ -52,6 +53,8 @@ class JudgeService:
         prompt_template: str,
         force_session_model: bool = False,
         context_window: int = 0,
+        follow_persona: bool = True,
+        bot_name: str = "小千",
     ) -> None:
         self._context = context
         self._storage = storage
@@ -63,6 +66,8 @@ class JudgeService:
         self._prompt_template = prompt_template
         self._force_session_model = force_session_model
         self._context_window = context_window
+        self._follow_persona = follow_persona
+        self._bot_name = bot_name
 
     async def judge(
         self,
@@ -89,7 +94,13 @@ class JudgeService:
             return None
 
         try:
-            prompt = self._prompt_template.format(text=text.strip())
+            persona_name, persona_prompt = await self._persona_ctx(event)
+            prompt = render(
+                self._prompt_template,
+                text=text.strip(),
+                persona_name=persona_name,
+                persona_prompt=persona_prompt,
+            )
             contexts = await self._recent_context(event)
             try:
                 resp = await provider.text_chat(prompt=prompt, contexts=contexts)
@@ -117,6 +128,44 @@ class JudgeService:
         except Exception as e:
             logger.warning(f"[心弦] 获取 provider 失败（已静默降级）: {e}")
             return None
+
+    async def _persona_ctx(self, event: AstrMessageEvent) -> tuple[str, str]:
+        """解析当前会话生效的人格（名称 + 人设 prompt），评审提示词随人格切换同步。
+
+        与 AstrBot 主链路同源：conv.persona_id → persona_manager.resolve_selected_persona。
+        任何失败（旧版框架无该 API / 无会话 / 解析异常）静默回落 (bot_name, "")。
+        """
+        if not self._follow_persona:
+            return self._bot_name, ""
+        try:
+            pm = getattr(self._context, "persona_manager", None)
+            if pm is None:
+                return self._bot_name, ""
+            umo = getattr(event, "unified_msg_origin", "") or ""
+            conv_persona = None
+            cm = getattr(self._context, "conversation_manager", None)
+            if umo and cm:
+                cid = await cm.get_curr_conversation_id(umo)
+                conv = await cm.get_conversation(umo, cid) if cid else None
+                conv_persona = getattr(conv, "persona_id", None) if conv else None
+            provider_settings: dict = {}
+            try:
+                cfg = self._context.get_config(umo or None)
+                provider_settings = (cfg or {}).get("provider_settings", {}) or {}
+            except Exception:
+                pass
+            persona_id, persona, _, _ = await pm.resolve_selected_persona(
+                umo=umo,
+                conversation_persona_id=conv_persona,
+                platform_name=event.get_platform_name(),
+                provider_settings=provider_settings,
+            )
+            if persona:
+                name = str(persona.get("name") or persona_id or self._bot_name)
+                return name, str(persona.get("prompt") or "")
+        except Exception as e:
+            logger.debug(f"[心弦] 人格解析失败，评审回落默认称呼: {e}")
+        return self._bot_name, ""
 
     async def _recent_context(self, event: AstrMessageEvent) -> list[dict]:
         """取最近 context_window 条会话消息作为评估上下文（仅文本，忽略图片）。失败返回 []。"""

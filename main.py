@@ -48,7 +48,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.17.0",
+    "1.19.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -130,6 +130,8 @@ class XinxianPlugin(Star):
             ),
             force_session_model=bool(judge_cfg.get("narrative_reason", False)),
             context_window=int(judge_cfg.get("context_window", 0)),
+            follow_persona=bool(judge_cfg.get("follow_persona", True)),
+            bot_name=(judge_cfg.get("bot_name") or "").strip() or "小千",
         )
         self._deps = Deps(
             favor=self._favor,
