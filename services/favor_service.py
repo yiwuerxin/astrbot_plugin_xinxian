@@ -14,6 +14,7 @@ from ..core.decimal import round1
 from ..core.events import EventRule
 from ..core.identity import is_master as _is_master
 from ..core.levels import LevelTable
+from ..core.level_economy import EconomyConfig, apply as apply_economy
 from ..core.relationship import RelationshipTable
 from ..core.models import FavorChange, FavorRecord, LevelDef
 from ..storage.base import StorageBackend
@@ -38,6 +39,7 @@ class FavorService:
         decay_grace_days: float = 3,
         decay_baseline: float = 0.0,
         relationships: RelationshipTable | None = None,
+        economy: EconomyConfig | None = None,
     ) -> None:
         self._storage = storage
         self._levels = levels
@@ -53,6 +55,7 @@ class FavorService:
             else None
         )
         self._relationships = relationships
+        self._economy = economy
         self._nick_cache: dict[tuple[str, str], str] = {}
 
     # ---------- 查询 ----------
@@ -191,14 +194,38 @@ class FavorService:
     ) -> FavorChange:
         """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。
 
+        先过防通胀经济学层（噪声地板 → 负面权重/阶段乘数 → 同日重复衰减），
+        归零则不产生任何变动与流水。规则引擎/跨插件 API 不走该层。
         message: 触发本次评估的用户发言原文（截断 200 字入库，供 WebUI 核对是否误判）。
         """
+        if self._economy is not None:
+            rec0 = await self.get(group_id, user_id)
+            level_name = self.level_of(rec0.favor).name
+            pos_today = await self._positive_judge_today(group_id, user_id)
+            eco = apply_economy(delta, level_name, pos_today, self._economy)
+            if eco.delta == 0:
+                return FavorChange(0, reason, "judge", clamped=True, favor_after=rec0.favor)
+            delta = eco.delta
         return await self._apply_one(
             group_id, user_id, delta,
             cooldown_key=None, cooldown_sec=0,
             reason=reason, source="judge",
             message=(message or "")[:200],
         )
+
+    async def _positive_judge_today(self, group_id: str, user_id: str) -> int:
+        """当日已生效的正向评审次数（供同日重复衰减）。失败返回 0。"""
+        try:
+            start = time.mktime(date.today().timetuple())
+            logs = await self._storage.query_logs(group_id, user_id, limit=50)
+            return sum(
+                1 for r in logs
+                if r.get("source") == "judge"
+                and float(r.get("delta") or 0) > 0
+                and float(r.get("ts") or 0) >= start
+            )
+        except Exception:
+            return 0
 
     async def change(
         self, group_id: str, user_id: str, delta: float,
