@@ -683,3 +683,167 @@ class TestPragmaVersion:
             set_user_version(conn, 99)
         conn.close()
 
+
+# ---------------- 评审五档解析 ----------------
+
+class TestJudgeParse:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.judge_parse import parse
+
+        self.parse = parse
+
+    def test_tier_with_evidence(self):
+        r = self.parse("档位:热情\n证据:「跟你聊天比跟谁都开心」\n理由:直白好感")
+        assert r.tier == "热情" and r.delta == 1.8
+        assert "跟谁都开心" in r.evidence and r.reason == "直白好感"
+
+    def test_neutral_omits_evidence(self):
+        r = self.parse("档位:中性")
+        assert r.tier == "中性" and r.delta == 0 and r.evidence == ""
+
+    def test_nonneutral_without_evidence_forced_neutral(self):
+        # 证据门槛：非中性档位没给证据 → 强制改判中性
+        r = self.parse("档位:友好\n理由:语气不错")
+        assert r.tier == "中性" and r.delta == 0
+
+    def test_empty_evidence_forced_neutral(self):
+        r = self.parse("档位:敌意\n证据:  \n理由:x")
+        assert r.tier == "中性" and r.delta == 0
+
+    def test_custom_deltas_and_clamp(self):
+        r = self.parse("档位:敌意\n证据:「蠢」", {"敌意": -9}, max_abs_delta=3)
+        assert r.delta == -3  # 钳到 max_abs_delta
+
+    def test_unknown_tier_no_match(self):
+        assert self.parse("我觉得还行吧") is None
+
+    def test_legacy_format_friendly(self):
+        # 旧协议兼容：态度:友好 分值:0.8 → 友好档（分值低于热情阈值）
+        r = self.parse("态度:友好\n分值:0.8")
+        assert r.tier == "友好" and r.delta == 0.6
+
+    def test_legacy_format_hostile(self):
+        r = self.parse("态度:敌意\n分值:-2.9")
+        assert r.tier == "敌意" and r.delta == -2.5
+
+    def test_legacy_format_neutral(self):
+        r = self.parse("态度:中性\n分值:0")
+        assert r.tier == "中性" and r.delta == 0
+
+
+# ---------------- 防通胀经济学层 ----------------
+
+class TestLevelEconomy:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig, apply
+
+        self.cfg = EconomyConfig()  # 默认：地板0.5 负重1.5 斜率0.25
+        self.apply = apply
+
+    def test_zero_passthrough(self):
+        r = self.apply(0, "陌生", 0, self.cfg)
+        assert r.delta == 0 and not r.floored
+
+    def test_noise_floor(self):
+        assert self.apply(0.3, "陌生", 0, self.cfg).delta == 0
+        assert self.apply(-0.4, "陌生", 0, self.cfg).delta == 0
+        r = self.apply(0.3, "陌生", 0, self.cfg)
+        assert r.floored
+
+    def test_noise_floor_disabled(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        cfg = EconomyConfig(noise_floor=0)
+        assert self.apply(0.3, "陌生", 0, cfg).delta == 0.3
+
+    def test_level_mult_positive_only(self):
+        # 正分吃阶段乘数（乘后 round1 收敛：0.6×0.75=0.45→0.4 银行家舍入）
+        assert self.apply(0.6, "陌生", 0, self.cfg).delta == 0.6   # mult=1
+        assert self.apply(0.6, "友好", 0, self.cfg).delta == 0.4   # 0.45→0.4
+        assert self.apply(1.8, "挚爱", 0, self.cfg).delta == 0.4   # 0.36→0.4
+
+    def test_negative_weight_no_level_mult(self):
+        # 负分吃负面权重、不吃阶段乘数：-0.8×1.5=-1.2
+        r = self.apply(-0.8, "挚爱", 0, self.cfg)
+        assert r.delta == -1.2 and r.multiplied
+
+    def test_same_day_decay(self):
+        # 第2次正分：1.8×(1-0.25×1)=1.35→1.4；第4次：×0.25=0.45→0.5（地板之上）
+        assert self.apply(1.8, "陌生", 1, self.cfg).delta == 1.4
+        assert self.apply(1.8, "陌生", 3, self.cfg).delta == 0.5
+        assert self.apply(1.8, "陌生", 99, self.cfg).delta == 0.5  # 下限 0.25
+
+    def test_same_day_decay_disabled(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        cfg = EconomyConfig(same_day_decay=0)
+        assert self.apply(1.8, "陌生", 5, cfg).delta == 1.8
+
+    def test_negative_not_decayed(self):
+        # 同日衰减只作用于正分
+        assert self.apply(-0.8, "陌生", 5, self.cfg).delta == -1.2
+
+    def test_no_config_passthrough(self):
+        assert self.apply(0.3, "陌生", 9, None).delta == 0.3  # 未启用 economy 原样通过
+
+    def test_from_config_disabled_returns_none(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        assert EconomyConfig.from_config({"enabled": False}) is None
+        eco = EconomyConfig.from_config({"noise_floor": 0.2, "level_mult": {"zhiai": 0.1}})
+        assert eco.noise_floor == 0.2
+        assert eco.level_mult["挚爱"] == 0.1 and eco.level_mult["挚友"] == 0.35  # 未给键回落默认
+
+
+# ---------------- apply_judge 集成（economy 接入 FavorService） ----------------
+
+class TestApplyJudgeEconomy:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+        import tempfile
+
+        self.dir = tempfile.mkdtemp()
+        self.storage = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.storage.init())
+        self.eco = EconomyConfig()
+
+    def _svc(self, eco=True):
+        return FavorService(
+            self.storage, LevelTable.from_config(None),
+            economy=self.eco if eco else None,
+        )
+
+    def test_noise_floor_zero_no_log(self):
+        # 碎分（0.3 < 地板 0.5）被拦截：无变动、无流水
+        svc = self._svc()
+        ch = asyncio.run(svc.apply_judge("g", "u1", 0.3, message="你好"))
+        assert ch.delta == 0 and ch.clamped
+        assert asyncio.run(self.storage.query_logs("g", "u1")) == []
+
+    def test_level_mult_applied(self):
+        # 高阶段正分吃乘数：先设到挚爱段（95+），热情 1.8×0.2=0.36→0.4
+        svc = self._svc()
+        asyncio.run(svc.set_favor("g", "u2", 96))
+        ch = asyncio.run(svc.apply_judge("g", "u2", 1.8, message="爱你！"))
+        assert ch.delta == 0.4
+
+    def test_negative_weight_applied(self):
+        # 负分吃 1.5 倍权重：冷淡 -0.8×1.5=-1.2
+        svc = self._svc()
+        ch = asyncio.run(svc.apply_judge("g", "u3", -0.8, message="哦"))
+        assert ch.delta == -1.2
+
+    def test_same_day_decay_sequence(self):
+        # 同日连续正向：热情 1.8 → 1.4（×0.75）→ 0.9（×0.5）逐次递减
+        svc = self._svc()
+        d1 = asyncio.run(svc.apply_judge("g", "u4", 1.8)).delta
+        d2 = asyncio.run(svc.apply_judge("g", "u4", 1.8)).delta
+        d3 = asyncio.run(svc.apply_judge("g", "u4", 1.8)).delta
+        assert (d1, d2, d3) == (1.8, 1.4, 0.9)
+
+    def test_economy_off_passthrough(self):
+        svc = self._svc(eco=False)
+        ch = asyncio.run(svc.apply_judge("g", "u5", 0.3, message="你好"))
+        assert ch.delta == 0.3  # 未启用经济学层：碎分直给（旧行为）
+
