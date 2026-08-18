@@ -29,20 +29,6 @@
     "description": "每日好感度下降上限（绝对值，支持一位小数）。默认比上涨上限宽（负性偏向：坏事比好事重）",
     "default": 8
   },
-  "rules": {
-    "type": "object",
-    "description": "规则事件：每日首次互动触发的好感度增减",
-    "items": {
-      "daily_first": {
-        "type": "object",
-        "description": "当日首次互动",
-        "items": {
-          "enabled": { "type": "bool", "default": true, "description": "是否启用" },
-          "delta": { "type": "float", "default": 1, "description": "分值（支持一位小数）。定位是「维持费」——只防衰减，不推进关系" }
-        }
-      }
-    }
-  },
   "judge": {
     "type": "object",
     "description": "LLM 情绪评估：对小千说的话由模型判断态度并微调好感度",
@@ -58,13 +44,13 @@
       "bot_name": { "type": "string", "default": "小千", "description": "未开启 follow_persona 或解析不到人格时的兜底称呼" },
       "attitude_deltas": {
         "type": "object",
-        "description": "五档分值映射：模型只判档位（敌意/冷淡/中性/友好/热情），分值在这里定，杜绝模型自由打分的通胀偏置",
+        "description": "五档区间锚点：模型自由给分，但分值被钳制在档位区间内（相邻档锚点构成区间）；分值方向与档位不符时以档位为准",
         "items": {
-          "diyi": { "type": "float", "default": -2.5, "description": "敌意档分值" },
-          "lengdan": { "type": "float", "default": -0.8, "description": "冷淡档分值" },
-          "zhongxing": { "type": "float", "default": 0, "description": "中性档分值（保持 0）" },
-          "youhao": { "type": "float", "default": 0.6, "description": "友好档分值" },
-          "reqing": { "type": "float", "default": 1.8, "description": "热情档分值" }
+          "diyi": { "type": "float", "default": -2.5, "description": "敌意档区间下界锚点" },
+          "lengdan": { "type": "float", "default": -0.8, "description": "冷淡/敌意档分界锚点" },
+          "zhongxing": { "type": "float", "default": 0, "description": "中性档（固定 0）" },
+          "youhao": { "type": "float", "default": 0.6, "description": "友好/热情档分界锚点" },
+          "reqing": { "type": "float", "default": 1.8, "description": "热情档区间上界锚点" }
         }
       }
     }

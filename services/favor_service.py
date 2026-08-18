@@ -11,7 +11,6 @@ from datetime import date
 
 from ..core.decay import effective_favor
 from ..core.decimal import round1
-from ..core.events import EventRule
 from ..core.identity import is_master as _is_master
 from ..core.levels import LevelTable
 from ..core.level_economy import EconomyConfig, apply as apply_economy
@@ -142,13 +141,6 @@ class FavorService:
         await self._storage.set_nickname(group_id, user_id, nick)
         self._nick_cache[key] = nick
 
-    async def is_first_today(self, group_id: str, user_id: str) -> bool:
-        """该成员当日是否还没有互动记录（用于 DAILY_FIRST 事件）。"""
-        last = await self._storage.last_event_at(group_id, user_id, "DAILY_FIRST")
-        if last is None:
-            return True
-        return date.fromtimestamp(last) < date.today()
-
     async def recent_events(
         self, group_id: str, user_id: str, count: int = 3, days: int = 7
     ) -> list[dict]:
@@ -162,31 +154,6 @@ class FavorService:
         return rows[:count]
 
     # ---------- 增减 ----------
-
-    async def apply_rules(
-        self,
-        group_id: str,
-        user_id: str,
-        rules: list[EventRule],
-        source: str = "rule",
-    ) -> FavorChange:
-        """应用一组命中规则；逐条过冷却与每日上限。"""
-        total = FavorChange(delta=0, reason="", source=source)
-        reasons: list[str] = []
-        for rule in rules:
-            ch = await self._apply_one(
-                group_id, user_id, rule.delta,
-                cooldown_key=rule.event.name,
-                cooldown_sec=rule.cooldown_sec,
-                reason=rule.event.name, source=source,
-            )
-            total.delta += ch.delta
-            total.clamped = total.clamped or ch.clamped
-            total.favor_after = ch.favor_after
-            if ch.delta:
-                reasons.append(rule.event.name)
-        total.reason = ",".join(reasons)
-        return total
 
     async def apply_judge(
         self, group_id: str, user_id: str, delta: float, reason: str = "judge",
