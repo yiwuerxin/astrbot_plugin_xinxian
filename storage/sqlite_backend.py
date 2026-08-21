@@ -67,6 +67,7 @@ class SQLiteBackend(StorageBackend):
         max_favor: float,
         min_favor: float = -100.0,
         decay: tuple[float, float, float, float] | None = None,
+        default_favor: float = 0.0,
     ) -> tuple[FavorRecord, float]:
         now = time.time()
         with self._lock:
@@ -78,7 +79,8 @@ class SQLiteBackend(StorageBackend):
             if row:
                 current, last_ts, half_life = float(row[0]), row[1], float(row[2] or 10.0)
             else:
-                current, last_ts, half_life = 0.0, 0.0, 10.0
+                # 无记录以 default_favor 为基数（updated_at=0 表示从未互动，不吃衰减）
+                current, last_ts, half_life = float(default_favor or 0.0), 0.0, 10.0
             # 时间衰减（指数遗忘曲线）：落库前先把存量衰减到当下（锁定），再叠加本次增减
             if decay:
                 base, growth, h_max, baseline = decay

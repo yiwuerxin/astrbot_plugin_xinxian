@@ -1,6 +1,11 @@
 """心弦好感度 - 存储后端抽象接口。
 
 上层（services）只依赖本接口；实现类负责并发安全与事务性。
+
+**原子性契约（承重假设）**：FavorService 的「每日限幅读 → apply_delta 写 →
+当日额度记账」三步依赖实现类的各方法体内不含真实挂起点（同步代码的
+async 方法在事件循环里原子执行）。若引入真异步后端（aiosqlite/Redis 等），
+必须把上述序列收进同一把锁/事务内，否则每日限幅可被并发绕过。
 """
 
 from __future__ import annotations
@@ -30,12 +35,14 @@ class StorageBackend(ABC):
         max_favor: float,
         min_favor: float = -100.0,
         decay: tuple[float, float, float, float] | None = None,
+        default_favor: float = 0.0,
     ) -> tuple[FavorRecord, float]:
         """原子地增减好感度（锁内读-改-写），封顶 min_favor..max_favor。
 
         decay: 非空时为 (half_life_base, growth, h_max, baseline)。落库前先把
             存量按指数遗忘曲线衰减到当下（锁定时间衰减）；delta>0 时半衰期
             按巩固规则增长并回写。为 None 时不衰减不巩固。
+        default_favor: 无记录时的起始基数（与新成员初始好感配置一致）。
         Returns:
             (更新后的记录, 实际生效的变化量)。越界截断时实际变化量小于 delta。
             delta 与返回值精度均为一位小数。

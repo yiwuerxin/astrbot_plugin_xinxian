@@ -88,6 +88,7 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                     group_id, user_id, result.delta,
                     reason=result.reason or f"judge:{result.attitude}",
                     message=text,
+                    umo=getattr(event, "unified_msg_origin", "") or "",
                 )
                 if change.delta:
                     logger.info(

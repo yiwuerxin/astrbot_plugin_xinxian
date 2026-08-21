@@ -55,7 +55,7 @@ astrbot_plugin_xinxian/
 │   └── page_api.py          #   WebUI 面板后端 API（注册到 AstrBot 主面板）
 ├── pages/dashboard/         # WebUI 前端（Vue3：总览/流水/成员详情弹窗）
 ├── resources/prompts/       # 提示词模板（注入模板、评估模板，可自行修改）
-└── tests/test_core.py       # 核心层单元测试（125 个用例：等级/评审解析/经济学/印象/迁移/衰减）
+└── tests/test_core.py       # 核心层单元测试（等级/评审解析/经济学/印象/迁移/衰减，数量以 pytest 输出为准）
 ```
 
 模块依赖单向：`api → services → core/storage`，`core` 不依赖任何外层，低耦合高内聚。
@@ -64,7 +64,7 @@ astrbot_plugin_xinxian/
 
 1. AstrBot WebUI → 插件管理 → 从 GitHub 安装：`https://github.com/yiwuerxin/astrbot_plugin_xinxian`
 2. 或手动：clone 本仓库到 `AstrBot/data/plugins/` 下，重启 AstrBot
-3. 无第三方依赖（仅标准库），无需安装 requirements
+3. 无必需第三方依赖（仅标准库）；排行图为可选功能，渲染需 `pip install Pillow`（未安装时 /好感排行 自动降级为文字版）
 
 ## 配置（WebUI 插件页）
 
@@ -72,7 +72,8 @@ astrbot_plugin_xinxian/
 |---|---|---|
 | master_ids | "" | 主人 QQ 号，逗号分隔 |
 | max_favor / min_favor | 100 / -100 | 好感度上限 / 下限（支持负值，下限应与「厌恶」等级阈值一致） |
-| default_favor | 0 | 新成员初始好感度 |
+| default_favor | 0 | 新成员初始好感度（首次增减也以此值为基数） |
+| timezone | "" | 每日限幅/同日衰减的"一天"边界时区（如 Asia/Shanghai）；留空用系统本地时区（Docker 默认 UTC＝北京时间早 8 点换日） |
 | daily_cap_up / daily_cap_down | 4 / 8 | 每日净增/净降上限（支持一位小数）；默认降上限更宽（负性偏向） |
 | judge.enabled / provider_id | true / "" | LLM 评估开关与模型（建议选便宜小模型，留空跟随会话） |
 | judge.only_when_at_or_reply | true | 仅@/回复时评估，省成本 |
@@ -119,7 +120,7 @@ API 承诺向后兼容：只增不改。
 
 ```bash
 pip install pytest
-pytest tests/ -v    # 125 个核心层用例，不依赖 AstrBot 环境
+pytest tests/ -v    # 核心层用例，不依赖 AstrBot 环境
 ```
 
 **扩展指南**

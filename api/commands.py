@@ -81,7 +81,10 @@ async def handle_refresh_impression(
     target = (target or "").strip()
     if not target.isdigit():
         return "用法：/印象刷新 QQ号"
-    return await svc.refresh_impression_now(event.get_group_id(), target)
+    return await svc.refresh_impression_now(
+        event.get_group_id(), target,
+        umo=getattr(event, "unified_msg_origin", "") or "",
+    )
 
 
 async def build_rank_image(
@@ -93,17 +96,36 @@ async def build_rank_image(
     return render_ranking(rows, event.get_sender_id(), font_path=font_path, rows_per_col=rows_per_col)
 
 
+async def rank_reply(
+    svc: FavorService, event: AstrMessageEvent,
+    *, font_path: str = "", rows_per_col: int = 12, text_limit: int = 10,
+) -> tuple[str, str]:
+    """排行回复统一入口：优先图片（需 Pillow），未安装时降级文字排行。
+
+    返回 ("image", 图片路径) 或 ("text", 文本正文)。"""
+    try:
+        from . import rank_image  # noqa: F401  探测 Pillow 可用性
+    except ImportError:
+        return "text", await handle_ranking(svc, event, text_limit)
+    return "image", await build_rank_image(svc, event, font_path, rows_per_col)
+
+
 async def try_text_wake(
     svc: FavorService,
     event: AstrMessageEvent,
     ranking_phrases: set[str],
     font_path: str = "",
     rows_per_col: int = 12,
-) -> str | None:
-    """群聊文字唤醒：命中排行短语 → 返回排行图片路径；否则 None。带 / 的交由 / 指令。"""
+    text_limit: int = 10,
+) -> tuple[str, str] | None:
+    """群聊文字唤醒：命中排行短语 → 返回 ("image",路径)/("text",正文)；否则 None。
+
+    带 / 的交由 / 指令。"""
     msg = (event.message_str or "").strip()
     if not msg or msg.startswith("/"):
         return None
     if msg in ranking_phrases:
-        return await build_rank_image(svc, event, font_path, rows_per_col)
+        return await rank_reply(
+            svc, event, font_path=font_path, rows_per_col=rows_per_col, text_limit=text_limit
+        )
     return None

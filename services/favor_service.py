@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import date
+from datetime import date, datetime
 
-from ..core.decay import effective_favor
+from ..core.decay import HALF_LIFE_MIN, effective_favor
 from ..core.decimal import round1
 from ..core.identity import is_master as _is_master
 from ..core.impression import build_summary_prompt, parse_summary, stats_tags
@@ -43,18 +43,25 @@ class FavorService:
         relationships: RelationshipTable | None = None,
         economy: EconomyConfig | None = None,
         impression_interval: int = 8,
+        tz_name: str = "",
     ) -> None:
         self._storage = storage
         self._levels = levels
         self.max_favor = max_favor
         self.min_favor = min_favor
         self.default_favor = default_favor
-        self.daily_cap_up = daily_cap_up
-        self.daily_cap_down = daily_cap_down
+        # 配置钳制：负上限 / <1 的巩固系数会让限幅与遗忘方向反着来，这里兜住
+        self.daily_cap_up = max(0.0, float(daily_cap_up))
+        self.daily_cap_down = max(0.0, float(daily_cap_down))
         self._master_ids = list(master_ids)
-        # 指数遗忘衰减参数：(半衰期基准, 巩固增长系数, 半衰期上限, 基线)
+        # 指数遗忘衰减参数：(半衰期基准, 巩固增长系数, 半衰期上限, 基线)。
+        # 基准/上限不低于 HALF_LIFE_MIN 保险丝，巩固系数不小于 1（否则正互动
+        # 反而缩短半衰期）；上限不小于基准。
+        base = max(HALF_LIFE_MIN, float(half_life_base))
+        growth = max(1.0, float(half_life_growth))
+        h_max = max(base, float(half_life_max))
         self._decay = (
-            (float(half_life_base), float(half_life_growth), float(half_life_max), float(decay_baseline))
+            (base, growth, h_max, float(decay_baseline))
             if decay_enabled
             else None
         )
@@ -63,8 +70,32 @@ class FavorService:
         self._impression_interval = max(1, int(impression_interval))
         self._summarizer = None  # 由 main.py 注入（JudgeService，借其 provider 解析）
         self._nick_cache: dict[tuple[str, str], str] = {}
+        # 每日限幅/同日衰减的"一天"边界时区；留空用系统本地时区
+        # （Docker 默认 UTC，北京时间早 8 点才换日——生产建议显式配 Asia/Shanghai）
+        self._tz = None
+        if (tz_name or "").strip():
+            try:
+                import zoneinfo
+
+                self._tz = zoneinfo.ZoneInfo(tz_name.strip())
+            except Exception:
+                self._tz = None
+        # 后台印象刷新任务持引用（裸 create_task 可能被 GC 中途回收）
+        self._bg_tasks: set[asyncio.Task] = set()
 
     # ---------- 查询 ----------
+
+    def _today(self, now: float | None = None) -> date:
+        """配置时区下的"今天"（每日限幅/同日衰减的边界）。"""
+        t = time.time() if now is None else now
+        dt = datetime.fromtimestamp(t, self._tz) if self._tz else datetime.fromtimestamp(t)
+        return dt.date()
+
+    def _day_start(self, now: float | None = None) -> float:
+        """配置时区下今天 0 点的 epoch 秒。"""
+        d = self._today(now)
+        dt = datetime(d.year, d.month, d.day, tzinfo=self._tz) if self._tz else datetime(d.year, d.month, d.day)
+        return dt.timestamp()
 
     def _effective(self, stored: float, updated_at: float, half_life: float = 10.0) -> float:
         """读取时的有效好感度（启用衰减时按指数遗忘曲线向基线收敛）。
@@ -145,13 +176,18 @@ class FavorService:
         await self._storage.set_relationship(group_id, user_id, (relationship or "").strip())
 
     async def touch_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
-        """更新成员昵称；带内存缓存，昵称未变不写库（不影响好感数值）。"""
+        """更新成员昵称；带内存缓存，昵称未变不写库（不影响好感数值）。
+
+        无记录时先按 default_favor 建行（否则 INSERT 落列默认 0，
+        配置了非零初始好感的新成员会被顶成 0）。"""
         nick = (nickname or "").strip()
         if not nick:
             return
         key = (group_id, user_id)
         if self._nick_cache.get(key) == nick:
             return
+        if await self._storage.get(group_id, user_id) is None:
+            await self._storage.set_value(group_id, user_id, self.default_favor)
         await self._storage.set_nickname(group_id, user_id, nick)
         self._nick_cache[key] = nick
 
@@ -186,27 +222,31 @@ class FavorService:
         """注入 JudgeService（借其 provider 解析与人格名，用于印象汇总调用）。"""
         self._summarizer = judge
 
-    async def maybe_refresh_impression(self, group_id: str, user_id: str) -> None:
-        """每次有效评审后调用：每 interval 次触发一次后台印象刷新（不阻塞、失败静默）。"""
+    async def maybe_refresh_impression(self, group_id: str, user_id: str, umo: str = "") -> None:
+        """每次有效评审后调用：每 interval 次触发一次后台印象刷新（不阻塞、失败静默）。
+
+        umo: 会话标识（用于解析当前人格名）；后台任务持引用防 GC。"""
         if self._summarizer is None or self._impression_interval <= 0:
             return
         try:
             logs = await self._storage.query_logs(group_id, user_id, limit=self._impression_interval)
             hit = sum(1 for r in logs if r.get("source") == "judge")
             if hit and hit % self._impression_interval == 0:
-                asyncio.get_event_loop().create_task(
-                    self._refresh_impression_inner(group_id, user_id)
+                task = asyncio.create_task(
+                    self._refresh_impression_inner(group_id, user_id, umo)
                 )
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
         except Exception:
             pass  # 印象是增值功能，任何失败都不影响主链路
 
-    async def refresh_impression_now(self, group_id: str, user_id: str) -> str:
+    async def refresh_impression_now(self, group_id: str, user_id: str, umo: str = "") -> str:
         """立即刷新印象（指令/WebUI 手动触发），返回一句话结果。"""
         if self._summarizer is None:
             return "印象功能未启用"
-        return await self._refresh_impression_inner(group_id, user_id)
+        return await self._refresh_impression_inner(group_id, user_id, umo)
 
-    async def _refresh_impression_inner(self, group_id: str, user_id: str) -> str:
+    async def _refresh_impression_inner(self, group_id: str, user_id: str, umo: str = "") -> str:
         """收集流水 → 构造汇总提示 → 调 provider → 解析落库。"""
         from astrbot.api import logger  # 延迟导入，保持 core 可测性
 
@@ -220,15 +260,13 @@ class FavorService:
                 f"{float(r.get('delta') or 0):+} {r.get('message') or ''} —— {r.get('reason') or ''}"
                 for r in reversed(judged)  # 时间正序（query_logs 是倒序）
             ]
-            persona_name = "小千"
-            try:
-                persona_name = self._summarizer._bot_name
-            except Exception:
-                pass
+            # 人格名与 provider 走 JudgeService 公共方法（解析当前会话人格，
+            # 失败回落 bot_name），与评审链路同源
+            persona_name = await self._summarizer.resolve_display_name(umo)
             prompt = build_summary_prompt(
                 rec.nickname or user_id, rec.impression, samples, persona_name
             )
-            provider = await self._summarizer._resolve_provider(None)
+            provider = await self._summarizer.resolve_summary_provider()
             if provider is None:
                 return "模型不可用，稍后再试"
             resp = await provider.text_chat(prompt=prompt)
@@ -258,13 +296,14 @@ class FavorService:
 
     async def apply_judge(
         self, group_id: str, user_id: str, delta: float, reason: str = "judge",
-        *, message: str = "",
+        *, message: str = "", umo: str = "",
     ) -> FavorChange:
         """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。
 
         先过防通胀经济学层（噪声地板 → 负面权重/阶段乘数 → 同日重复衰减），
         归零则不产生任何变动与流水。规则引擎/跨插件 API 不走该层。
         message: 触发本次评估的用户发言原文（截断 200 字入库，供 WebUI 核对是否误判）。
+        umo: 会话标识（透传给印象刷新，用于解析当前人格名）。
         """
         if self._economy is not None:
             rec0 = await self.get(group_id, user_id)
@@ -282,13 +321,13 @@ class FavorService:
             message=(message or "")[:200],
         )
         if change.delta:
-            await self.maybe_refresh_impression(group_id, user_id)
+            await self.maybe_refresh_impression(group_id, user_id, umo)
         return change
 
     async def _positive_judge_today(self, group_id: str, user_id: str) -> int:
         """当日已生效的正向评审次数（供同日重复衰减）。失败返回 0。"""
         try:
-            start = time.mktime(date.today().timetuple())
+            start = self._day_start()
             logs = await self._storage.query_logs(group_id, user_id, limit=50)
             return sum(
                 1 for r in logs
@@ -354,14 +393,15 @@ class FavorService:
         if allowed == 0:
             rec = await self.get(group_id, user_id)
             return FavorChange(0, reason, source, clamped=True, favor_after=rec.favor)
-        # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛）
+        # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛；
+        #    无记录时以 default_favor 为基数，而非 0）
         rec, real = await self._storage.apply_delta(
             group_id, user_id, allowed, self.max_favor, self.min_favor,
-            decay=self._decay,
+            decay=self._decay, default_favor=self.default_favor,
         )
         if real:
             await self._storage.add_daily_gain(
-                group_id, user_id, date.today().isoformat(), real
+                group_id, user_id, self._today().isoformat(), real
             )
             await self._storage.add_log(
                 group_id, user_id, real,
@@ -379,7 +419,7 @@ class FavorService:
         self, group_id: str, user_id: str, delta: float
     ) -> tuple[float, bool]:
         """按当日净增量做双向限幅。返回 (限幅后的delta, 是否被截断)。"""
-        today = date.today().isoformat()
+        today = self._today().isoformat()
         # 读时收敛，消除累积小增量的浮点漂移，使比较干净
         gain = round1(await self._storage.daily_gain(group_id, user_id, today))
         if delta > 0:

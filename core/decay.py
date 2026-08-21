@@ -36,10 +36,11 @@ def effective_favor(
     """指数遗忘：存量距离按 0.5^(闲置天数/h) 衰减，向 baseline 收敛不越界。
 
     - updated_at <= 0（从未互动）：不衰减。
-    - half_life 缺失/非法时回落 HALF_LIFE_MIN。
+    - half_life 缺失/非法或低于 HALF_LIFE_MIN 时按 HALF_LIFE_MIN 计
+      （保险丝：配置被改坏也不会快于每天 ~13% 的比例损失）。
     - 返回值收敛到一位小数。
     """
-    h = float(half_life) if half_life and half_life > 0 else HALF_LIFE_MIN
+    h = max(HALF_LIFE_MIN, float(half_life)) if half_life else HALF_LIFE_MIN
     if updated_at <= 0 or now <= updated_at:
         return round1(stored)
     idle_days = (now - updated_at) / 86400.0
@@ -65,9 +66,10 @@ def consolidate_half_life(
 
     - 正向互动：h = min(h_max, max(h, base) × growth)（首次互动从 base 起步）；
     - 非正向互动：h 原样返回（但调用方仍会刷新 updated_at 时间锚）；
-    - h 非法（<=0）时回落 base。收敛到一位小数。
+    - h 非法（<=0）时回落 base；输入输出均不低于 HALF_LIFE_MIN 保险丝。
+      收敛到一位小数。
     """
-    cur = float(h) if h and h > 0 else float(base)
+    cur = max(HALF_LIFE_MIN, float(h or 0.0), float(base))
     if not positive:
         return round1(cur)
-    return round1(min(float(h_max), cur * float(growth)))
+    return round1(max(HALF_LIFE_MIN, min(float(h_max), cur * float(growth))))

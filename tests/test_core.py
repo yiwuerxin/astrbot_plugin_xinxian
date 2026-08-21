@@ -1291,3 +1291,143 @@ class TestApplyJudgeEconomy:
         ch = asyncio.run(svc.apply_judge("g", "u5", 0.3, message="你好"))
         assert ch.delta == 0.3  # 未启用经济学层：碎分直给（旧行为）
 
+
+
+# ---------------- 五档区间单源渲染（提示词与钳制同源） ----------------
+
+
+class TestTierRanges:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.judge_prompt import tier_ranges_line
+
+        self.line = tier_ranges_line
+
+    def test_default_ranges_match_clamp_windows(self):
+        # 相邻锚点构成连续区间：敌意 [-2.5,-0.8) / 冷淡 [-0.8,0) / 友好 (0,0.6] / 热情 [1.8,|max|]
+        assert self.line(None, 3.0) == (
+            "敌意 -2.5~-0.8 / 冷淡 -0.8~-0.1 / 中性 0 / 友好 +0.1~+0.6 / 热情 +1.8~+3"
+        )
+
+    def test_custom_anchors_flow_into_line(self):
+        line = self.line({"敌意": -3.0, "冷淡": -1.0, "友好": 0.5, "热情": 2.0}, 4.0)
+        assert "敌意 -3~-1" in line
+        assert "冷淡 -1~-0.1" in line
+        assert "友好 +0.1~+0.5" in line
+        assert "热情 +2~+4" in line
+
+    def test_render_injects_tier_ranges(self):
+        from astrbot_plugin_xinxian.core.judge_prompt import render
+
+        out = render(
+            "分值：{tier_ranges}", text="hi", persona_name="小千",
+            tier_ranges=self.line(None, 3.0),
+        )
+        assert "敌意 -2.5~-0.8" in out
+
+    def test_prompt_ranges_and_clamp_agree(self):
+        """性质测试：按渲染区间给出的分值经 parse 不会被改动（区间=钳制窗口）。"""
+        from astrbot_plugin_xinxian.core.judge_parse import parse
+        from astrbot_plugin_xinxian.core.judge_prompt import tier_ranges_line
+
+        for tier, score in (("敌意", -2.5), ("敌意", -0.9), ("冷淡", -0.5),
+                            ("友好", 0.3), ("友好", 0.6), ("热情", 2.0)):
+            line = tier_ranges_line(None, 3.0)
+            assert tier in line
+            out = parse(f"档位:{tier}\n分值:{score}\n证据:原话", None, max_abs_delta=3.0)
+            assert out is not None and out.delta == score, (tier, score)
+
+
+# ---------------- default_favor 首写一致性 ----------------
+
+
+class TestDefaultFavorFirstWrite:
+    def test_first_change_starts_from_default(self, tmp_path):
+        svc = _make_service(tmp_path, default_favor=10)
+        ch = asyncio.run(svc.change("g1", "u1", 2))
+        assert ch.favor_after == 12  # 以 default_favor=10 为基数，而非 0
+
+    def test_touch_nickname_creates_row_at_default(self, tmp_path):
+        svc = _make_service(tmp_path, default_favor=10)
+        asyncio.run(svc.touch_nickname("g1", "u1", "小明"))
+        rec = asyncio.run(svc.get("g1", "u1"))
+        assert rec.favor == 10
+        assert rec.nickname == "小明"
+
+    def test_default_zero_unchanged_behavior(self, tmp_path):
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5))
+        assert asyncio.run(svc.get("g1", "u1")).favor == 5
+
+
+# ---------------- 半衰期保险丝与配置钳制 ----------------
+
+
+class TestFuseAndClamps:
+    def test_effective_favor_fuse(self):
+        # h 低于 HALF_LIFE_MIN 时按保险丝计——两个过小的 h 衰减一致且不快于 MIN
+        from astrbot_plugin_xinxian.core.decay import HALF_LIFE_MIN, effective_favor
+
+        now = 86400 * 30
+        updated = 86400
+        a = effective_favor(80, updated, now, half_life=1, baseline=0)
+        b = effective_favor(80, updated, now, half_life=HALF_LIFE_MIN, baseline=0)
+        assert a == b
+
+    def test_consolidate_floors_at_fuse(self):
+        from astrbot_plugin_xinxian.core.decay import HALF_LIFE_MIN, consolidate_half_life
+
+        # h 非法回落 base；非正互动原样返回但不低于保险丝
+        assert consolidate_half_life(0, base=10, growth=1.3, h_max=60, positive=False) == 10.0
+        assert consolidate_half_life(2, base=10, growth=1.3, h_max=60, positive=False) == 10.0
+
+    def test_service_clamps_inverted_growth(self, tmp_path):
+        # growth<1 会让正互动"缩短"半衰期（与设计相反），构造时钳到 >=1
+        svc = _make_service(
+            tmp_path, decay_enabled=True, half_life_base=10, half_life_growth=0.5,
+        )
+        rec0 = asyncio.run(svc.get("g1", "u1"))
+        asyncio.run(svc.change("g1", "u1", 1))
+        rec1 = asyncio.run(svc.get("g1", "u1"))
+        assert rec0.half_life == 10.0
+        assert rec1.half_life >= rec0.half_life  # 巩固不缩短
+
+    def test_service_clamps_negative_caps(self, tmp_path):
+        svc = _make_service(tmp_path, daily_cap_up=-5)
+        assert svc.daily_cap_up == 0.0
+        ch = asyncio.run(svc.change("g1", "u1", 5))
+        assert ch.delta == 0 and ch.clamped
+
+
+# ---------------- 每日边界时区 ----------------
+
+
+class TestTimezoneBoundaries:
+    def _ts_utc(self, y, mo, d, h, mi=0):
+        import calendar
+
+        return calendar.timegm((y, mo, d, h, mi, 0, 0, 0))
+
+    def test_today_respects_timezone(self, tmp_path):
+        # 2026-08-21 20:30 UTC == 2026-08-22 04:30 北京
+        ts = self._ts_utc(2026, 8, 21, 20, 30)
+        utc = _make_service(tmp_path, tz_name="UTC")
+        sh = _make_service(tmp_path, tz_name="Asia/Shanghai")
+        assert str(utc._today(ts)) == "2026-08-21"
+        assert str(sh._today(ts)) == "2026-08-22"
+
+    def test_day_start_respects_timezone(self, tmp_path):
+        # 上海 8-22 的 0 点 = UTC 8-21 16:00
+        ts = self._ts_utc(2026, 8, 21, 20, 30)
+        sh = _make_service(tmp_path, tz_name="Asia/Shanghai")
+        assert sh._day_start(ts) == self._ts_utc(2026, 8, 21, 16, 0)
+
+    def test_invalid_timezone_falls_back_to_local(self, tmp_path):
+        svc = _make_service(tmp_path, tz_name="Not/AZone")
+        assert svc._tz is None  # 静默回落本地时区，不炸
+
+    def test_daily_cap_day_key_follows_timezone(self, tmp_path):
+        # 同一时刻，上海已是"新的一天"而 UTC 还是昨天：两者记账在不同的 day 键下
+        ts = self._ts_utc(2026, 8, 21, 20, 30)
+        utc = _make_service(tmp_path, tz_name="UTC", daily_cap_up=5)
+        sh = _make_service(tmp_path, tz_name="Asia/Shanghai", daily_cap_up=5)
+        assert utc._today(ts).isoformat() != sh._today(ts).isoformat()

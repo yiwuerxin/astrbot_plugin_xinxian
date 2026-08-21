@@ -49,7 +49,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.26.1",
+    "1.26.2",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -99,6 +99,7 @@ class XinxianPlugin(Star):
             relationships=relationships,
             economy=eco,
             impression_interval=int(impression_cfg.get("interval", 8)),
+            tz_name=str(config.get("timezone", "") or ""),
         )
 
         judge_cfg = config.get("judge") or {}
@@ -192,15 +193,20 @@ class XinxianPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def _on_group_msg(self, event: AstrMessageEvent):
-        # 文字唤醒：群里直接发文字（不用 /）触发查询指令；与 / 指令一致，之后照常跑规则/评估引擎
+        # 文字唤醒：群里直接发文字（不用 /）触发查询指令；与 / 指令一致，之后照常跑评估引擎
         if self._text_wake_enabled and not getattr(event, "_xinxian_cmd_done", False):
-            path = await cmd.try_text_wake(
+            reply = await cmd.try_text_wake(
                 self._favor, event,
                 self._text_wake_ranking,
                 self._render_font, self._render_rows,
+                text_limit=self._ranking_limit,
             )
-            if path is not None:
-                yield event.image_result(path)
+            if reply is not None:
+                kind, payload = reply
+                if kind == "image":
+                    yield event.image_result(payload)
+                else:  # 未安装 Pillow：降级文字排行
+                    yield event.plain_result(payload)
         await on_group_message(self._deps, event)
 
     @filter.on_llm_request()
@@ -211,11 +217,17 @@ class XinxianPlugin(Star):
 
     @filter.command("好感排行")
     async def _cmd_rank(self, event: AstrMessageEvent):
-        """查看本群对小千的好感度排行（图片）"""
+        """查看本群对小千的好感度排行（图片；未安装 Pillow 时降级文字）"""
         event._xinxian_cmd_done = True
-        yield event.image_result(
-            await cmd.build_rank_image(self._favor, event, self._render_font, self._render_rows)
+        kind, payload = await cmd.rank_reply(
+            self._favor, event,
+            font_path=self._render_font, rows_per_col=self._render_rows,
+            text_limit=self._ranking_limit,
         )
+        if kind == "image":
+            yield event.image_result(payload)
+        else:
+            yield event.plain_result(payload)
 
     @filter.command("好感设置")
     @filter.permission_type(filter.PermissionType.ADMIN)
