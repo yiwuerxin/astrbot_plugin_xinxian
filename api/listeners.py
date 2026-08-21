@@ -7,6 +7,8 @@ on_llm_request：向 system_prompt 注入好感度档案。
 
 from __future__ import annotations
 
+import asyncio
+
 from dataclasses import dataclass
 
 from astrbot.api import logger
@@ -53,39 +55,49 @@ def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
 
 
 async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
-    """群消息入口：评估引擎（唯一自动引擎，内部自行判断开关/冷却/降级）。"""
+    """群消息入口：评估引擎（唯一自动引擎，内部自行判断开关/冷却/降级）。
+
+    评审是事后打分（评的是已说出口的话），结果只影响下一条消息的注入——
+    因此整个评审+落库放后台任务，不阻塞本条消息的回复链路（AstrBot 的
+    pipeline 按 stage 串行 await，同步评审会让 @ 消息先卡一次评审 LLM 调用）。
+    评审本身 fail-silent：后台任务的异常只记日志。
+    """
     group_id, user_id = event.get_group_id(), event.get_sender_id()
     if not group_id or not user_id:
         return
     if user_id == str(event.get_self_id() or ""):
         return  # 自己的消息不计
 
-    # 顺手记下昵称（供排行图/WebUI 显示名字）；带内存缓存，未变不写库
+    # 消息链与文本在调度前取好（事件对象在后台任务里不再可靠）
     try:
         _nick = event.get_sender_name()
     except Exception:
         _nick = None
-    if _nick:
-        await deps.favor.touch_nickname(group_id, user_id, _nick)
-
     text = event.message_str or ""
     has_at_bot, is_reply_bot = _chain_flags(event)
 
-    # 评估引擎（内部自行判断开关/冷却/降级）
-    result = await deps.judge.judge(
-        event, text, has_at_bot=has_at_bot, is_reply_bot=is_reply_bot
-    )
-    if result is not None and result.delta:
-        change = await deps.favor.apply_judge(
-            group_id, user_id, result.delta,
-            reason=result.reason or f"judge:{result.attitude}",
-            message=text,
-        )
-        if change.delta:
-            logger.info(
-                f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
-                f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
+    async def _bg() -> None:
+        try:
+            if _nick:
+                await deps.favor.touch_nickname(group_id, user_id, _nick)
+            result = await deps.judge.judge(
+                event, text, has_at_bot=has_at_bot, is_reply_bot=is_reply_bot
             )
+            if result is not None and result.delta:
+                change = await deps.favor.apply_judge(
+                    group_id, user_id, result.delta,
+                    reason=result.reason or f"judge:{result.attitude}",
+                    message=text,
+                )
+                if change.delta:
+                    logger.info(
+                        f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
+                        f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
+                    )
+        except Exception:
+            logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）")
+
+    asyncio.create_task(_bg())
 
 
 async def on_llm_request(
