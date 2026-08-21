@@ -76,6 +76,7 @@ class InjectService:
             else ""
         )
         guidance = self._levels.guidance_of(record.favor, master=is_master)
+        disclosure = self._levels.disclosure_of(record.favor)
         events_block = self._format_events(recent_events or [])
         relationship_block = self._format_relationship(record.relationship)
         impression_block = self._format_impression(record)
@@ -87,6 +88,7 @@ class InjectService:
             max_favor=fmt(self._max_favor),
             level_name=lv.name,
             level_guidance=guidance,
+            disclosure=disclosure,
             recent_events=events_block,
             relationship=relationship_block,
             impression=impression_block,

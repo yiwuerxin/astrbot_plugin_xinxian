@@ -156,15 +156,30 @@ class FavorService:
         self._nick_cache[key] = nick
 
     async def recent_events(
-        self, group_id: str, user_id: str, count: int = 3, days: int = 7
+        self, group_id: str, user_id: str, count: int = 3, days: int = 7,
+        *, sig_threshold: float = 0.0, sig_window_mult: float = 1.0,
     ) -> list[dict]:
-        """最近 days 天内、最近 count 条变动流水（倒序），供注入「近期印象」。"""
+        """最近 count 条变动流水（倒序），供注入「近期印象」。
+
+        显著性加权（MemoryBank 式）：|delta| ≥ sig_threshold 的重要事件，
+        记忆窗口放大 sig_window_mult 倍——大事记得久，小寒暄照常淡忘。
+        已撤销（reversed）的变动不作为记忆注入。
+        """
         if not count or count <= 0:
             return []
         rows = await self._storage.query_logs(group_id, user_id, limit=max(count * 5, count))
+        rows = [r for r in rows if not r.get("reversed")]
         if days and days > 0:
-            cutoff = time.time() - days * 86400
-            rows = [r for r in rows if r.get("ts", 0) >= cutoff]
+            now = time.time()
+            normal_cutoff = now - days * 86400
+            sig_cutoff = now - days * 86400 * max(1.0, sig_window_mult)
+
+            def _in_window(r: dict) -> bool:
+                if sig_threshold > 0 and abs(float(r.get("delta") or 0)) >= sig_threshold:
+                    return r.get("ts", 0) >= sig_cutoff
+                return r.get("ts", 0) >= normal_cutoff
+
+            rows = [r for r in rows if _in_window(r)]
         return rows[:count]
 
     def bind_summarizer(self, judge) -> None:

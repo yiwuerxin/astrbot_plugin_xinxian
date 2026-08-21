@@ -49,7 +49,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.24.1",
+    "1.25.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -158,6 +158,8 @@ class XinxianPlugin(Star):
             inject_enabled=bool(inject_cfg.get("enabled", True)),
             memory_count=int(inject_cfg.get("memory_count", 3)),
             memory_days=int(inject_cfg.get("memory_days", 7)),
+            memory_sig_threshold=float(inject_cfg.get("memory_sig_threshold", 1.0)),
+            memory_sig_window_mult=float(inject_cfg.get("memory_sig_window_mult", 3.0)),
         )
         cmd_cfg = config.get("command") or {}
         self._ranking_limit = int(cmd_cfg.get("ranking_limit", 10))

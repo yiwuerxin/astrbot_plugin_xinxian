@@ -52,6 +52,7 @@ class LevelDef:
         max_score: 该等级最高分（含），-1 表示无上限。
         guidance: 注入提示词用的态度指引文本。
         master_guidance: 主人专属态度指引；空串表示无，回落普通 guidance。
+        disclosure: 自我表露分寸（社会渗透理论：关系越深，袒露的层越深）。
     """
 
     name: str
@@ -59,6 +60,7 @@ class LevelDef:
     max_score: float
     guidance: str
     master_guidance: str = ""
+    disclosure: str = ""
 
 
 @dataclass
