@@ -270,7 +270,8 @@ class FavorService:
             rec0 = await self.get(group_id, user_id)
             level_name = self.level_of(rec0.favor).name
             pos_today = await self._positive_judge_today(group_id, user_id)
-            eco = apply_economy(delta, level_name, pos_today, self._economy)
+            repair = await self._in_repair_window(group_id, user_id)
+            eco = apply_economy(delta, level_name, pos_today, self._economy, repair=repair)
             if eco.delta == 0:
                 return FavorChange(0, reason, "judge", clamped=True, favor_after=rec0.favor)
             delta = eco.delta
@@ -297,6 +298,26 @@ class FavorService:
             )
         except Exception:
             return 0
+
+    async def _in_repair_window(self, group_id: str, user_id: str) -> bool:
+        """是否处于信任修复期：repair_hours 窗口内存在过 ≤ -repair_threshold 的
+        重大得罪（评审流水，未撤销）。摧毁快、修复慢——窗口内正分被压制。
+        失败（含未启用经济层）返回 False。"""
+        eco = self._economy
+        if eco is None or eco.repair_threshold <= 0 or eco.repair_hours <= 0:
+            return False
+        try:
+            cutoff = time.time() - eco.repair_hours * 3600
+            logs = await self._storage.query_logs(group_id, user_id, limit=50)
+            return any(
+                r.get("source") == "judge"
+                and not r.get("reversed")
+                and float(r.get("delta") or 0) <= -eco.repair_threshold
+                and float(r.get("ts") or 0) >= cutoff
+                for r in logs
+            )
+        except Exception:
+            return False
 
     async def change(
         self, group_id: str, user_id: str, delta: float,

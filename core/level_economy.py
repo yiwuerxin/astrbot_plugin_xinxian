@@ -38,12 +38,19 @@ class EconomyConfig:
         same_day_decay: 同日重复衰减斜率：当日已有 N 次正向评审时，
             第 N+1 次正分乘 max(0.25, 1 - slope*N)。0=关闭。
         level_mult: 等级名 → 正分乘数（社会渗透：高阶段寒暄不再推进）。
+        repair_threshold: 信任修复期触发阈值——评审分值 ≤ -threshold 的重大
+            得罪后进入修复期（信任研究：摧毁快、修复慢）。0=关闭。
+        repair_hours: 修复期时长（小时）：窗口内正向分值被压制。
+        repair_factor: 修复期内正分乘数（0.5=半效涨回）。1=不压制。
     """
 
     noise_floor: float = 0.5
     negative_weight: float = 1.5
     same_day_decay: float = 0.25
     level_mult: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LEVEL_MULT))
+    repair_threshold: float = 2.0
+    repair_hours: float = 48.0
+    repair_factor: float = 0.5
 
     @classmethod
     def from_config(cls, cfg: dict | None) -> "EconomyConfig | None":
@@ -71,6 +78,9 @@ class EconomyConfig:
             negative_weight=float(raw.get("negative_weight", 1.5)),
             same_day_decay=float(raw.get("same_day_decay", 0.25)),
             level_mult=mult,
+            repair_threshold=float(raw.get("repair_threshold", 2.0)),
+            repair_hours=float(raw.get("repair_hours", 48.0)),
+            repair_factor=float(raw.get("repair_factor", 0.5)),
         )
 
 
@@ -82,6 +92,7 @@ class EconomyResult:
     floored: bool = False      # 被噪声地板归零
     multiplied: bool = False   # 吃了阶段乘数或负面权重
     decayed: bool = False      # 吃了同日重复衰减
+    repairing: bool = False    # 处于信任修复期（正分被压制）
 
 
 def apply(
@@ -89,12 +100,14 @@ def apply(
     level_name: str,
     positive_today: int = 0,
     cfg: EconomyConfig | None = None,
+    repair: bool = False,
 ) -> EconomyResult:
     """对评审分值跑完整经济学管线。
 
-    顺序：噪声地板 → 负面权重/阶段乘数 → 同日重复衰减 → round1。
+    顺序：噪声地板 → 负面权重/阶段乘数 → 同日重复衰减 → 修复期压制 → round1。
     delta=0 直接返回（中性评审不产生任何流水）。
     positive_today: 当日已生效的正向评审次数（第 N+1 次吃 N 次衰减）。
+    repair: 是否处于信任修复期（重大得罪后的时间窗内），仅压制正分。
     """
     if cfg is None:
         return EconomyResult(delta=round1(delta))
@@ -126,6 +139,11 @@ def apply(
         if factor < 1:
             d = round1(d * factor)
             res.decayed = True
+
+    # 4. 信任修复期：重大得罪后的时间窗内，正分只算半效（摧毁快、修复慢）
+    if d > 0 and repair and cfg.repair_factor != 1:
+        d = round1(d * cfg.repair_factor)
+        res.repairing = True
 
     res.delta = d
     return res

@@ -1173,6 +1173,24 @@ class TestLevelEconomy:
         assert self.apply(1.8, "陌生", 3, self.cfg).delta == 0.5
         assert self.apply(1.8, "陌生", 99, self.cfg).delta == 0.5  # 下限 0.25
 
+    def test_repair_window_positive_only(self):
+        # 修复期：正分半效（默认 factor=0.5），负分不受影响
+        r = self.apply(1.8, "陌生", 0, self.cfg, repair=True)
+        assert r.delta == 0.9 and r.repairing
+        r2 = self.apply(-0.8, "陌生", 0, self.cfg, repair=True)
+        assert r2.delta == -1.2 and not r2.repairing  # 负分不吃修复压制
+        # 不在修复期：无变化
+        r3 = self.apply(1.8, "陌生", 0, self.cfg, repair=False)
+        assert r3.delta == 1.8 and not r3.repairing
+
+    def test_repair_factor_disabled(self):
+        # repair_factor=1 → 不压制（等效关闭）
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        cfg = EconomyConfig(repair_factor=1.0)
+        r = self.apply(1.8, "陌生", 0, cfg, repair=True)
+        assert r.delta == 1.8 and not r.repairing
+
     def test_same_day_decay_disabled(self):
         from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
 
@@ -1220,6 +1238,32 @@ class TestApplyJudgeEconomy:
         ch = asyncio.run(svc.apply_judge("g", "u1", 0.3, message="你好"))
         assert ch.delta == 0 and ch.clamped
         assert asyncio.run(self.storage.query_logs("g", "u1")) == []
+
+    def test_repair_window_after_major_offense(self):
+        # 重大得罪（原始分 -1.4，负面权重 ×1.5 = -2.1 ≤ -2.0）后进入修复期：
+        # 再夸 1.8 → 半效 0.9
+        svc = self._svc()
+        asyncio.run(svc.apply_judge("g", "u9", -1.4, message="重骂"))
+        ch = asyncio.run(svc.apply_judge("g", "u9", 1.8, message="对不起"))
+        assert ch.delta == 0.9
+
+    def test_no_repair_without_major_offense(self):
+        # 普通小得罪（-0.8×1.5=-1.2 未达阈值）不触发修复期：再夸 1.8 全额
+        svc = self._svc()
+        asyncio.run(svc.apply_judge("g", "u8", -0.8, message="小抱怨"))
+        ch = asyncio.run(svc.apply_judge("g", "u8", 1.8, message="夸夸"))
+        assert ch.delta == 1.8
+
+    def test_repair_ignores_reversed_offense(self):
+        # 已撤销的得罪记录不触发修复期
+        svc = self._svc()
+        asyncio.run(svc.apply_judge("g", "u7", -1.4, message="重骂"))
+        with self.storage._lock:
+            self.storage._c().execute(
+                "update favor_log set reversed = 1 where group_id='g' and user_id='u7'")
+            self.storage._c().commit()
+        ch = asyncio.run(svc.apply_judge("g", "u7", 1.8, message="夸夸"))
+        assert ch.delta == 1.8
 
     def test_level_mult_applied(self):
         # 高阶段正分吃乘数：先设到挚爱段（95+），热情 1.8×0.2=0.36→0.4
