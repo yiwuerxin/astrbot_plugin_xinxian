@@ -54,14 +54,19 @@ class TestLevelTable:
         assert table.level_of(50).name == "友好"
 
     def test_master_guidance_defaults(self):
-        # 主人版指引：低好感＝赌气别扭语义，高好感＝亲昵依恋语义
-        assert "别扭" in self.table.guidance_of(-50, master=True)   # 厌恶
-        assert "低头" in self.table.guidance_of(5, master=True)    # 陌生
-        assert "来哄" in self.table.guidance_of(14.6, master=True) # 认识
+        # 主人版指引语义按正负分界：负值＝闹别扭；正值＝正面关系的亲疏程度
+        assert "别扭" in self.table.guidance_of(-50, master=True)   # 厌恶（负值才别扭）
+        assert "生分" in self.table.guidance_of(5, master=True)    # 陌生：生分但不生气
+        assert "不生气" in self.table.guidance_of(5, master=True)
+        assert "温和亲近" in self.table.guidance_of(15.0, master=True)  # 认识：正面升温
         assert "撒娇" in self.table.guidance_of(40, master=True)   # 友好
         assert "黏人" in self.table.guidance_of(60, master=True)   # 亲密
         assert "护主人" in self.table.guidance_of(85, master=True) # 挚友
         assert "毫无保留" in self.table.guidance_of(99, master=True) # 挚爱
+        # 正值低段不得出现冲突叙事（别扭/冷战期/和好）；「不冷战」这类明确否定除外
+        for favor in (5, 15.0, 40):
+            g = self.table.guidance_of(favor, master=True)
+            assert "别扭" not in g and "冷战期" not in g and "和好" not in g
 
     def test_master_guidance_off_for_normal_members(self):
         # 非主人：master=False 用普通指引，不含主人语义
@@ -178,9 +183,9 @@ class TestInject:
 
         inj = InjectService(LevelTable.from_config(None), "档案：{favor}{master_line}")
         block = inj.build_block(FavorRecord("g", "u", 50), is_master=True)
-        # 默认措辞要点：身份恒定 + 好感照常涨跌 + 低好感赌气怼 + 称谓替换
+        # 默认措辞要点：身份恒定 + 好感照常涨跌 + 负好感闹别扭声明 + 称谓替换
         assert "主人身份恒定" in block
-        assert "赌气" in block
+        assert "闹别扭" in block
         assert "你的主人" in block  # {master_title} 替换为默认"主人"
         # 非主人不出现主人提示
         assert "主人身份恒定" not in inj.build_block(FavorRecord("g", "u", 50), is_master=False)
@@ -200,10 +205,11 @@ class TestInject:
         from astrbot_plugin_xinxian.services.inject_service import InjectService
 
         inj = InjectService(LevelTable.from_config(None), "{level_guidance}")
-        rec = FavorRecord("g", "u", 14.6)  # 认识级
+        rec = FavorRecord("g", "u", 15.0)  # 认识级（正值）
         block_m = inj.build_block(rec, is_master=True)
-        assert "来哄" in block_m  # 主人版指引
+        assert "温和亲近" in block_m  # 主人版指引：正面语义
         assert "像刚认识的朋友" not in block_m  # 不再照搬外人措辞
+        assert "别扭" not in block_m  # 正值不得有冲突叙事
         # 非主人保持原文指引
         assert "像刚认识的朋友" in inj.build_block(rec, is_master=False)
 
