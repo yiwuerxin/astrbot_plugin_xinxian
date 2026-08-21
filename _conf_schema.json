@@ -121,6 +121,9 @@
       "noise_floor": { "type": "float", "default": 0.5, "description": "噪声地板：|分值| 小于该值直接归零（拦截评审碎分/宽大偏置）。0=关闭" },
       "negative_weight": { "type": "float", "default": 1.5, "description": "负面权重放大倍数（负性偏向：坏事比好事重 2~5 倍）。1=不放大" },
       "same_day_decay": { "type": "float", "default": 0.25, "description": "同日重复衰减：当日第 N+1 次正向评审乘 max(0.25, 1-斜率×N)——重复刷好感边际递减。0=关闭" },
+      "repair_threshold": { "type": "float", "default": 2.0, "description": "信任修复期触发阈值：评审分值 ≤ -该值 的重大得罪后进入修复期（摧毁快、修复慢）。0=关闭" },
+      "repair_hours": { "type": "float", "default": 48, "description": "信任修复期时长（小时）：窗口内的正向评审分值被压制——得罪了要哄好几天" },
+      "repair_factor": { "type": "float", "default": 0.5, "description": "修复期内正分乘数（0.5=只算半效）。1=不压制" },
       "level_mult": {
         "type": "object",
         "description": "阶段正分乘数（社会渗透理论：关系越深，日常互动越难再推进，需更高质量的互动）。负分不受影响",
