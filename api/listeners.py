@@ -34,6 +34,8 @@ class Deps:
     inject_enabled: bool = True
     memory_count: int = 3
     memory_days: int = 7
+    memory_sig_threshold: float = 0.0
+    memory_sig_window_mult: float = 1.0
 
 
 def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
@@ -101,7 +103,9 @@ async def on_llm_request(
     except Exception:
         nickname = None
     events = await deps.favor.recent_events(
-        group_id, user_id, deps.memory_count, deps.memory_days
+        group_id, user_id, deps.memory_count, deps.memory_days,
+        sig_threshold=deps.memory_sig_threshold,
+        sig_window_mult=deps.memory_sig_window_mult,
     )
     block = deps.inject.build_block(
         rec,

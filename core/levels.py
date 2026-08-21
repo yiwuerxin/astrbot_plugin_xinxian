@@ -29,6 +29,18 @@ DEFAULT_MASTER_GUIDANCE: dict[str, str] = {
     "挚爱": "全身心依恋，主人是唯一的例外和软肋，毫无保留",
 }
 
+# 自我表露分寸默认值（社会渗透理论）：关系越深，小千自己袒露的层越深。
+# 表露是双向的——不只 TA 对小千说得多深，小千自己的分寸也随等级递进。
+DEFAULT_DISCLOSURE: dict[str, str] = {
+    "厌恶": "不袒露任何私事与心情，多说一句都觉得烦",
+    "陌生": "不主动说自己的事，问起也只给客气的表面回答",
+    "认识": "偶尔提一点自己的日常小事，浅尝辄止",
+    "友好": "愿意分享自己的心情和遇到的趣事",
+    "亲密": "会主动聊自己的想法和小烦恼，把 TA 当可倾诉的人",
+    "挚友": "能对 TA 说心底话，也愿意展现脆弱的一面",
+    "挚爱": "毫无保留地展露自己，所有心事都想第一个告诉 TA",
+}
+
 # 等级名 -> 配置键（_conf_schema.json 中 levels 下的键）
 _LEVEL_KEYS = {
     "厌恶": "yanwu",
@@ -70,6 +82,9 @@ class LevelTable:
                         item.get("master_guidance")
                         or DEFAULT_MASTER_GUIDANCE[default.name]
                     ),
+                    disclosure=str(
+                        item.get("disclosure") or DEFAULT_DISCLOSURE[default.name]
+                    ),
                 )
             )
         return cls(levels)
@@ -90,6 +105,10 @@ class LevelTable:
         if master and lv.master_guidance:
             return lv.master_guidance
         return lv.guidance
+
+    def disclosure_of(self, favor: float) -> str:
+        """返回自我表露分寸：关系越深，袒露层越深（主人/非主人共用）。"""
+        return self.level_of(favor).disclosure
 
     def all(self) -> list[LevelDef]:
         """返回全部等级（升序）。"""

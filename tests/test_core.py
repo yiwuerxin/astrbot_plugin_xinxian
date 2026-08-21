@@ -81,6 +81,23 @@ class TestLevelTable:
         # 未自定义的等级回落默认主人指引
         assert "黏人" in table.guidance_of(60, master=True)
 
+    def test_disclosure_defaults(self):
+        # 表露分寸随等级递进：浅层不袒露，深层袒露心底话
+        assert "不袒露" in self.table.disclosure_of(-50)      # 厌恶
+        assert "不主动" in self.table.disclosure_of(5)        # 陌生
+        assert "日常小事" in self.table.disclosure_of(15.0)   # 认识
+        assert "趣事" in self.table.disclosure_of(40)         # 友好
+        assert "倾诉" in self.table.disclosure_of(60)         # 亲密
+        assert "心底话" in self.table.disclosure_of(85)       # 挚友
+        assert "毫无保留" in self.table.disclosure_of(99)     # 挚爱
+
+    def test_disclosure_custom(self):
+        table = LevelTable.from_config(
+            {"levels": {"zhiai": {"disclosure": "自定义的表露文案"}}}
+        )
+        assert table.disclosure_of(99) == "自定义的表露文案"
+        assert "倾诉" in table.disclosure_of(60)  # 未自定义等级回落默认
+
 
 # ---------------- 身份 ----------------
 
@@ -212,6 +229,18 @@ class TestInject:
         assert "别扭" not in block_m  # 正值不得有冲突叙事
         # 非主人保持原文指引
         assert "像刚认识的朋友" in inj.build_block(rec, is_master=False)
+
+    def test_block_disclosure_placeholder(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        # 含占位符：渲染表露分寸
+        inj = InjectService(LevelTable.from_config(None), "- 表露分寸：{disclosure}")
+        block = inj.build_block(FavorRecord("g", "u", 40), is_master=False)
+        assert "趣事" in block
+        # 自定义模板无占位符：不报错、不渲染（与 {recent_events} 同语义）
+        inj2 = InjectService(LevelTable.from_config(None), "档案：{favor}")
+        b2 = inj2.build_block(FavorRecord("g", "u", 40), is_master=False)
+        assert "表露" not in b2
 
 
 # ---------------- 好感度增减（内存级 SQLite） ----------------
@@ -372,6 +401,37 @@ class TestFavorService:
         assert len(ev) == 1 and ev[0]["delta"] == 1.2
         assert asyncio.run(svc.recent_events("g1", "u1", count=0)) == []  # 关闭
         assert asyncio.run(svc.recent_events("g2", "u1", count=3, days=7)) == []  # 每群独立
+
+    def test_recent_events_significance_weighting(self, tmp_path):
+        # 显著事件（|delta|≥阈值）记忆窗口延长：10 天前的大冲突仍在 7 天窗口外、3× 窗口内
+        import time as _t
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 0.4, reason="寒暄", source="judge"))
+        logs = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        # 直接改库模拟 10 天前的显著事件
+        old_ts = _t.time() - 10 * 86400
+        with svc._storage._lock:
+            svc._storage._c().execute(
+                "insert into favor_log (group_id,user_id,delta,favor_before,favor_after,reason,source,ts) "
+                "values ('g1','u1',-2.5,0,-2.5,'重骂','judge',?)", (old_ts,))
+            svc._storage._c().commit()
+        ev = asyncio.run(svc.recent_events(
+            "g1", "u1", count=3, days=7, sig_threshold=1.0, sig_window_mult=3.0))
+        deltas = [r["delta"] for r in ev]
+        assert -2.5 in deltas  # 10 天前的大冲突仍在 3× 记忆窗口内
+        assert 0.4 in deltas  # 刚发生的普通事件当然也在
+        ev_default = asyncio.run(svc.recent_events("g1", "u1", count=3, days=7))
+        assert -2.5 not in [r["delta"] for r in ev_default]  # 未开启加权时 10 天前已淡忘
+
+    def test_recent_events_skips_reversed(self, tmp_path):
+        # 已撤销的变动不作为记忆注入
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 1.5, reason="夸", source="judge"))
+        with svc._storage._lock:
+            svc._storage._c().execute(
+                "update favor_log set reversed = 1 where group_id='g1' and user_id='u1'")
+            svc._storage._c().commit()
+        assert asyncio.run(svc.recent_events("g1", "u1", count=3, days=7)) == []
 
     def test_set_get_relationship(self, tmp_path):
         svc = _make_service(tmp_path, relationships=RelationshipTable.from_config(None))
