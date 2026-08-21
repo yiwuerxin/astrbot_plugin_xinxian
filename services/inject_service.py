@@ -19,7 +19,7 @@ from ..core.relationship import RelationshipTable
 # 用 {master_title} 占位称谓；inject.master_prompt 配置可覆盖整段。
 DEFAULT_MASTER_PROMPT = (
     "，TA 是你的{master_title}。主人身份恒定，好感度照常涨跌、不豁免——"
-    "下面的等级与态度指引按主人关系理解（低好感＝赌气别扭，不是对外人的疏离）"
+    "下面的等级与态度指引按主人关系理解（负好感＝闹别扭，正值＝亲疏程度，不是对外人的语义）"
 )
 
 
