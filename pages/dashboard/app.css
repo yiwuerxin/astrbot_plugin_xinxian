@@ -298,7 +298,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   font-size: 13px;
 }
 
-.xx-actions { display: flex; gap: 6px; align-items: center; }
+/* 注意：td 上不可改 display（flex 会破坏 table-cell，行被撑高时该格
+   下边框停在半空，与相邻列的行分隔线错位）——对齐交给默认 vertical-align。 */
+.xx-actions { white-space: nowrap; }
 .xx-reversed td { opacity: 0.45; }
 
 /* ---------- 弹窗 ---------- */
