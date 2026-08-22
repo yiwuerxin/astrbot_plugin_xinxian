@@ -115,7 +115,9 @@ class StorageBackend(ABC):
     ) -> None:
         """追加一条好感度变动流水（供 WebUI 展示增减大小与原因）。
 
-        message: 触发该次变动的用户发言原文（仅 judge 路径记，其它路径留空）。
+        message: 触发该次变动的用户发言摘录（仅 judge 路径记，其它路径留空）。
+        数据最小化契约：reason 与 message 落库前统一截断到 200 字符
+        （两者都可能携带聊天内容，存储层兜底所有调用路径）。
         """
 
     @abstractmethod

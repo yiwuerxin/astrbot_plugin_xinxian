@@ -81,12 +81,35 @@ Host-specific details — working-copy/production directory layout, deploy proce
 
 An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave it out of commits.
 
-## Content policy — this repo is public
+## Production review standard — this repo is public
 
-Other users install this plugin. Before every commit, check the diff for:
+This plugin runs in production for many users. Every PR is reviewed against this standard before merge; the reviewer (human or agent) must verify each item and state the result in the PR.
 
-- **Real user data**: QQ numbers, nicknames/外号, group IDs, chat excerpts. Examples in README / `_conf_schema.json` / code comments / tests must use obvious placeholders (`123456789`, `阿狸`).
-- **Credentials & infra**: tokens, host paths, server/container layout, deploy runbooks, production state. These belong in `CLAUDE.local.md` only.
+### 1. Privacy & data (the hard rules)
+
+- **No real user data in any commit or PR text**: QQ numbers, nicknames/外号, group IDs, chat excerpts, real favor values, real judge reasons/impressions. Examples in README / `_conf_schema.json` / code comments / tests must use obvious placeholders (`123456789`, `阿狸`, round numbers like `50.0`). PR titles/bodies read like a product changelog: behavior changes only, no production numbers or scenes.
+- **Credentials & infra never in the repo**: tokens, host paths, server/container layout, deploy runbooks, production state. These belong in `CLAUDE.local.md` only (gitignored).
+- **Data-flow inventory (what a new feature must answer)**: what user data does it touch (message text? QQ? nickname?), where does it go (local SQLite only ⇄ sent to an LLM provider ⇄ rendered into prompts/images), and is it minimal? New columns/fields storing message content must be justified — `favor_log.message` (v6) stores at most a 200-char excerpt, judge path only; keep that bound for anything similar.
+- **LLM egress is the only external flow**: message text goes to the configured judge provider (and nothing else). Any new feature that sends data to a third party beyond the configured provider is rejected outright. No telemetry, no phone-home, no fetch to any hardcoded URL.
+- **Local-only storage**: everything persists in `data/plugin_data/astrbot_plugin_xinxian/xinxian.db`; the dashboard inherits AstrBot's own auth — never add a standalone server/port/credentials.
+
+### 2. Correctness & robustness (production-grade code)
+
+- `pytest tests/ -q` green (count grows with the change; new logic needs new tests, not just "didn't break"), plus the AST `__init__` order check when `main.py` changes (#31/#35 lineage).
+- Fail-silent is the design for all enhancement paths (judge, impressions, decay): any provider/parse/storage failure must degrade to "no change", never raise into the chat pipeline. Background tasks hold references (`asyncio.create_task` result kept in a set — bare tasks can be GC'd mid-flight).
+- Concurrency: the storage layer has a module lock; new write paths must go through `FavorService._apply_one`/existing backend methods — no ad-hoc `sqlite3` calls. Judge cooldown reserves via `touch_event` *before* the LLM call.
+- Config never trusted blind: numeric configs clamped to sane ranges (see the half-life fuses), missing keys fall back to defaults, `from_config` must accept partial config.
+- Resource reads (`resources/prompts/`, fonts) stay inside the plugin dir; SQL stays parameterized (no f-string SQL with user input — `query_logs`' LIKE on user_id is internal-use only, never fed raw user text).
+
+### 3. External PRs (from outside contributors)
+
+Review every diff hunk against §1 and §2 — do not trust the PR body's claims; verify locally (`git fetch pull/N/head` → run tests → probe the claimed bug on main). Rebase onto latest main resolving conflicts yourself when needed (force-push to the PR branch is authorized; state what the rebase did in a PR comment). Version numbers: coordinator bumps if colliding with an already-merged release.
+
+### 4. Release & deploy discipline
+
+- `metadata.yaml` and `@register()` version strings bumped together, same PR as the code.
+- PR self-check after opening: grep the PR body for real identifiers (QQ/nicknames/groups/values) and PATCH if any leak.
+- Deploy only after owner merge: tar-sync code files (excluding `.git`/caches/`tokens.txt`/`CLAUDE.local.md`), reload plugin via dashboard API, verify the loaded version in logs, never touch `xinxian.db*`.
 
 ## Conventions to preserve
 

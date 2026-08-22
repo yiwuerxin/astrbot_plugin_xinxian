@@ -251,6 +251,9 @@ class SQLiteBackend(StorageBackend):
         self, group_id, user_id, delta, favor_before, favor_after, reason, source, ts,
         message: str = "",
     ) -> None:
+        # 数据最小化边界（生产标准）：message 存触发发言摘录、reason 存评审
+        # 理由——两者都可能携带聊天内容，落库前统一截断，兜底所有调用路径
+        # （judge 路径在 FavorService 已截，跨插件/管理路径靠这里兜底）。
         with self._lock:
             self._c().execute(
                 "INSERT INTO favor_log(group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message) "
@@ -261,10 +264,10 @@ class SQLiteBackend(StorageBackend):
                     round1(delta),
                     round1(favor_before),
                     round1(favor_after),
-                    reason,
+                    (reason or "")[:200],
                     source,
                     ts,
-                    (message or ""),
+                    (message or "")[:200],
                 ),
             )
             self._c().commit()

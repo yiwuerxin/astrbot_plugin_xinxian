@@ -488,6 +488,16 @@ class TestFavorService:
         assert rows[0]["message"] == "你好呀"
         assert rows[0]["reversed"] is False
 
+    def test_log_truncates_long_text(self, tmp_path):
+        # 数据最小化：message/reason 落库前截断到 200 字符（存储层兜底所有调用路径）
+        svc = _make_service(tmp_path)
+        long_msg, long_reason = "很" * 500, "理" * 300
+        asyncio.run(svc._storage.add_log(
+            "g1", "u1", 1.0, 0.0, 1.0, long_reason, "judge", 0.0, message=long_msg))
+        rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
+        assert len(rows[0]["message"]) == 200
+        assert len(rows[0]["reason"]) == 200
+
     def test_apply_judge_logs_message(self, tmp_path):
         svc = _make_service(tmp_path)
         asyncio.run(svc.apply_judge("g1", "u1", 1.5, message="小千你真可爱"))
