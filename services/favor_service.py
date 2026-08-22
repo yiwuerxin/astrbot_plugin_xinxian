@@ -70,16 +70,18 @@ class FavorService:
         self._impression_interval = max(1, int(impression_interval))
         self._summarizer = None  # 由 main.py 注入（JudgeService，借其 provider 解析）
         self._nick_cache: dict[tuple[str, str], str] = {}
-        # 每日限幅/同日衰减的"一天"边界时区；留空用系统本地时区
-        # （Docker 默认 UTC，北京时间早 8 点才换日——生产建议显式配 Asia/Shanghai）
+        # 每日限幅/同日衰减的"一天"边界时区。默认东八区（插件面向 QQ/中文
+        # 社区，而 Docker 容器系统时区多为 UTC——按 UTC 换日会让"每天"在
+        # 北京时间早 8 点才开始）；显式配置可覆盖为任意 IANA 时区名。
         self._tz = None
-        if (tz_name or "").strip():
-            try:
-                import zoneinfo
+        try:
+            import zoneinfo
 
-                self._tz = zoneinfo.ZoneInfo(tz_name.strip())
-            except Exception:
-                self._tz = None
+            self._tz = zoneinfo.ZoneInfo(
+                (tz_name or "").strip() or "Asia/Shanghai"
+            )
+        except Exception:
+            self._tz = None
         # 后台印象刷新任务持引用（裸 create_task 可能被 GC 中途回收）
         self._bg_tasks: set[asyncio.Task] = set()
 
