@@ -21,8 +21,8 @@
   },
   "timezone": {
     "type": "string",
-    "description": "每日限幅与同日衰减的\"一天\"边界时区（如 Asia/Shanghai）。留空用系统本地时区——Docker 容器默认 UTC，即北京时间早 8 点才换日；生产建议显式配置",
-    "default": ""
+    "description": "每日限幅与同日衰减的\"一天\"边界时区（IANA 名称，如 Asia/Shanghai、Europe/London）。默认 Asia/Shanghai——容器系统时区多为 UTC，不设默认的话\"一天\"会在北京时间早 8 点才换日",
+    "default": "Asia/Shanghai"
   },
   "daily_cap_up": {
     "type": "float",

@@ -1433,7 +1433,14 @@ class TestTimezoneBoundaries:
 
     def test_invalid_timezone_falls_back_to_local(self, tmp_path):
         svc = _make_service(tmp_path, tz_name="Not/AZone")
-        assert svc._tz is None  # 静默回落本地时区，不炸
+        assert svc._tz is None  # 静默回落系统本地时区，不炸
+
+    def test_default_timezone_is_shanghai(self, tmp_path):
+        # 默认（未配置/空串）＝东八区：容器多为 UTC，不设默认的话
+        # "一天"在北京时间早 8 点才换日
+        import zoneinfo
+        default = _make_service(tmp_path)
+        assert default._tz == zoneinfo.ZoneInfo("Asia/Shanghai")
 
     def test_daily_cap_day_key_follows_timezone(self, tmp_path):
         # 同一时刻，上海已是"新的一天"而 UTC 还是昨天：两者记账在不同的 day 键下
