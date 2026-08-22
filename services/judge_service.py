@@ -18,7 +18,7 @@ from astrbot.api.star import Context
 
 from ..core.judge_context import extract_history_text
 from ..core.judge_parse import ParsedJudge, parse as parse_judge
-from ..core.judge_prompt import render
+from ..core.judge_prompt import render, tier_ranges_line
 from ..storage.base import StorageBackend
 
 
@@ -88,6 +88,10 @@ class JudgeService:
         last = await self._storage.last_event_at(group_id, user_id, "judge")
         if last is not None and now - last < self._cooldown_sec:
             return None
+        # 冷却占位：评估前先落 touch，并发消息不会双重评估（检查与调用之间
+        # 隔着真实的 LLM I/O，事后 touch 存在竞态窗口）。代价是 provider/解析
+        # 失败也占用本次冷却窗口——失败重试顺延到下个冷却周期，可接受。
+        await self._storage.touch_event(group_id, user_id, "judge", now)
 
         provider = await self._resolve_provider(event)
         if provider is None:
@@ -101,6 +105,7 @@ class JudgeService:
                 persona_name=persona_name,
                 persona_prompt=persona_prompt,
                 roster=self._roster,
+                tier_ranges=tier_ranges_line(self._attitude_deltas, self._max_abs_delta),
             )
             contexts = await self._recent_context(event)
             try:
@@ -115,7 +120,6 @@ class JudgeService:
         result = self._parse(content)
         if result is None:
             return None
-        await self._storage.touch_event(group_id, user_id, "judge", now)
         return result
 
     async def _resolve_provider(self, event: AstrMessageEvent):
@@ -131,18 +135,21 @@ class JudgeService:
             return None
 
     async def _persona_ctx(self, event: AstrMessageEvent) -> tuple[str, str]:
-        """解析当前会话生效的人格（名称 + 人设 prompt），评审提示词随人格切换同步。
+        """解析当前会话生效的人格（名称 + 人设 prompt），评审提示词随人格切换同步。"""
+        umo = getattr(event, "unified_msg_origin", "") or ""
+        return await self._persona_ctx_for(umo, event.get_platform_name())
 
-        与 AstrBot 主链路同源：conv.persona_id → persona_manager.resolve_selected_persona。
-        任何失败（旧版框架无该 API / 无会话 / 解析异常）静默回落 (bot_name, "")。
-        """
+    async def _persona_ctx_for(self, umo: str, platform_name: str = "") -> tuple[str, str]:
+        """按 umo 解析生效人格（与 AstrBot 主链路同源：conv.persona_id →
+        persona_manager.resolve_selected_persona）。任何失败（旧版框架无该
+        API / 无会话 / 解析异常）静默回落 (bot_name, "")。"""
         if not self._follow_persona:
             return self._bot_name, ""
         try:
             pm = getattr(self._context, "persona_manager", None)
             if pm is None:
                 return self._bot_name, ""
-            umo = getattr(event, "unified_msg_origin", "") or ""
+            umo = umo or ""
             conv_persona = None
             cm = getattr(self._context, "conversation_manager", None)
             if umo and cm:
@@ -158,7 +165,7 @@ class JudgeService:
             persona_id, persona, _, _ = await pm.resolve_selected_persona(
                 umo=umo,
                 conversation_persona_id=conv_persona,
-                platform_name=event.get_platform_name(),
+                platform_name=platform_name,
                 provider_settings=provider_settings,
             )
             if persona:
@@ -167,6 +174,25 @@ class JudgeService:
         except Exception as e:
             logger.debug(f"[心弦] 人格解析失败，评审回落默认称呼: {e}")
         return self._bot_name, ""
+
+    # ---------------- 公共能力（印象汇总等兄弟服务复用，禁止摸私有成员） ----------------
+
+    @property
+    def bot_name(self) -> str:
+        """兜底称呼（follow_persona 关闭或解析失败时使用）。"""
+        return self._bot_name
+
+    async def resolve_summary_provider(self):
+        """印象汇总用 provider（与评审同源解析）。无事件上下文，走会话默认。"""
+        return await self._resolve_provider(None)
+
+    async def resolve_display_name(self, umo: str = "") -> str:
+        """当前会话生效人格的展示名（印象汇总等用）；解析失败回落 bot_name。"""
+        try:
+            name, _ = await self._persona_ctx_for(umo, "")
+            return name
+        except Exception:
+            return self._bot_name
 
     async def _recent_context(self, event: AstrMessageEvent) -> list[dict]:
         """取最近 context_window 条会话消息作为评估上下文（仅文本，忽略图片）。失败返回 []。"""

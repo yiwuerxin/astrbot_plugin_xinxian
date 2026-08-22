@@ -19,6 +19,11 @@
     "description": "新成员初始好感度",
     "default": 0
   },
+  "timezone": {
+    "type": "string",
+    "description": "每日限幅与同日衰减的\"一天\"边界时区（如 Asia/Shanghai）。留空用系统本地时区——Docker 容器默认 UTC，即北京时间早 8 点才换日；生产建议显式配置",
+    "default": ""
+  },
   "daily_cap_up": {
     "type": "float",
     "description": "每日好感度上涨上限（规则+评估合计，支持一位小数）。真实关系节奏建议 4：挚友约 2 个月、挚爱 3~4 个月",
