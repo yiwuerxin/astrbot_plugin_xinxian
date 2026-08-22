@@ -107,9 +107,25 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 
 ### 4. Release & deploy discipline
 
-- `metadata.yaml` and `@register()` version strings bumped together, same PR as the code.
+- `metadata.yaml` and `@register()` version strings bumped together, same PR as the code. Version follows Conventional Commits: `fix:` → patch, `feat:` → minor, `feat!`/`BREAKING CHANGE` → major.
 - PR self-check after opening: grep the PR body for real identifiers (QQ/nicknames/groups/values) and PATCH if any leak.
 - Deploy only after owner merge: tar-sync code files (excluding `.git`/caches/`tokens.txt`/`CLAUDE.local.md`), reload plugin via dashboard API, verify the loaded version in logs, never touch `xinxian.db*`.
+
+### 5. Commit & PR writing standard (industry norms, applies to external PRs too)
+
+**Commit message** — Conventional Commits 1.0.0 (`conventionalcommits.org`; colloquially "Angular convention" — Angular is an adopter, not the author):
+- Format `<type>(<scope>): <summary>`. Types: `build/ci/docs/feat/fix/perf/refactor/test` (feat = new feature, fix = bug fix, per spec). Scope optional (module name, e.g. `inject`, `webui`, `economy`).
+- Summary: imperative, no trailing period, short — ≤72 chars is the hard line (GitHub truncates; ~50 preferred, a rule of thumb not a law). Chinese summaries carry more per char, so the practical bar is "one line, verb-first".
+- Breaking changes: `feat!:`/`fix!:` before the colon, or a `BREAKING CHANGE:` footer.
+- Body (optional but expected for non-trivial commits): the *why* — what was wrong before, the reasoning, side effects. Wrap at 72 cols (git never auto-wraps). Do NOT list files or per-file changes (the diff shows that). NEVER just "fix bug"/"update"/"修改代码".
+- Name specific files ONLY for: file moves/renames (git shows those as delete+add — spell out "moved X to Y"), project-wide config changes (dependency versions, env vars), and external API/interface definitions.
+
+**PR description** — four sections, reviewer-facing:
+1. **改动简述** — one or two sentences, user-perceivable changes only (this doubles as the App-style changelog entry). No internal implementation details, no development narrative, no maintainer notes.
+2. **为什么改（背景）** — the business problem or user-facing bug, not the code walkthrough (Google eng-practices: code shows *what*, the description must carry *why*).
+3. **核心改动** — only the 1–2 pivotal files or risk points worth the reviewer's attention, never the full file list. UI changes require before/after screenshots or a short screen recording.
+4. **测试情况** — what was verified.
+- Self-test before submitting: a reviewer should grasp the change from the description alone without opening Files changed. If "优化" is all it says, it fails.
 
 ## Conventions to preserve
 
