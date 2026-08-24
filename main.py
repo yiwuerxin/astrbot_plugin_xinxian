@@ -49,7 +49,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.26.6",
+    "1.27.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -96,6 +96,7 @@ class XinxianPlugin(Star):
             half_life_growth=float(decay_cfg.get("half_life_growth", 1.3)),
             half_life_max=float(decay_cfg.get("half_life_max", 60)),
             decay_baseline=float(decay_cfg.get("baseline", 0.0)),
+            decay_floor_enabled=bool(decay_cfg.get("floor_enabled", True)),
             relationships=relationships,
             economy=eco,
             impression_interval=int(impression_cfg.get("interval", 8)),

@@ -1448,3 +1448,260 @@ class TestTimezoneBoundaries:
         utc = _make_service(tmp_path, tz_name="UTC", daily_cap_up=5)
         sh = _make_service(tmp_path, tz_name="Asia/Shanghai", daily_cap_up=5)
         assert utc._today(ts).isoformat() != sh._today(ts).isoformat()
+
+
+# ---------------- v1.27 信任修复等级调制 ----------------
+
+class TestRepairLevelScale:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        self.cfg = EconomyConfig()  # 默认 scale_high=1.5 / scale_low=1.0
+
+    def test_deep_level_longer_window(self):
+        from astrbot_plugin_xinxian.core.level_economy import repair_params_for_level
+
+        hours, factor = repair_params_for_level("挚友", self.cfg)
+        assert hours == 72.0            # 48×1.5
+        assert factor == 0.2            # 1-(1-0.5)×1.5=0.25→round1 银行家舍入 0.2
+
+    def test_shallow_level_baseline(self):
+        from astrbot_plugin_xinxian.core.level_economy import repair_params_for_level
+
+        for lvl in ("厌恶", "陌生", "认识", "友好"):
+            hours, factor = repair_params_for_level(lvl, self.cfg)
+            assert hours == 48.0 and factor == 0.5  # 旧版统一行为
+
+    def test_scale_disabled_returns_baseline(self):
+        from astrbot_plugin_xinxian.core.level_economy import (
+            EconomyConfig,
+            repair_params_for_level,
+        )
+
+        cfg = EconomyConfig(repair_scale_high=1.0)
+        assert repair_params_for_level("挚爱", cfg) == (48.0, 0.5)
+
+    def test_none_cfg_no_repair(self):
+        from astrbot_plugin_xinxian.core.level_economy import repair_params_for_level
+
+        assert repair_params_for_level("挚友", None) == (0.0, 1.0)
+
+
+class TestRepairLevelIntegration:
+    """深关系冒犯的修复期比浅关系长：亲密档冒犯 72h 窗 vs 友好档 48h 窗。"""
+
+    def setup_method(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+        import tempfile
+
+        self.dir = tempfile.mkdtemp()
+        self.storage = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.storage.init())
+        self.eco = EconomyConfig()
+
+    def _svc(self):
+        return FavorService(self.storage, LevelTable.from_config(None), economy=self.eco)
+
+    def test_deep_offense_longer_repair(self):
+        import astrbot_plugin_xinxian.services.favor_service as fs_mod
+
+        svc = self._svc()
+        # 浅关系成员冒犯一次（0 分档 → 友好以下，48h 窗）
+        asyncio.run(svc.apply_judge("g", "shal", -3.0, message="骂"))
+        # 深关系成员：先抬到亲密（55）再冒犯（亲密档，72h 窗）
+        asyncio.run(svc.set_favor("g", "deep", 55.0))
+        asyncio.run(svc.apply_judge("g", "deep", -3.0, message="骂"))
+        assert asyncio.run(svc._repair_window("g", "deep")) is True
+        assert asyncio.run(svc._repair_window("g", "shal")) is True
+        # 时间前移 50h：浅关系已出 48h 窗，深关系仍在 72h 窗内
+        real_time = fs_mod.time.time
+
+        class _Fake:
+            @staticmethod
+            def time():
+                return real_time() + 50 * 3600
+
+        fs_mod.time = _Fake
+        try:
+            assert asyncio.run(svc._repair_window("g", "deep")) is True
+            assert asyncio.run(svc._repair_window("g", "shal")) is False
+        finally:
+            fs_mod.time = real_time and __import__("time")
+
+
+# ---------------- v1.27 衰减等级地板 ----------------
+
+class TestDecayFloor:
+    def test_floor_holds_above(self):
+        # 95 挚爱、地板 55（亲密下沿）：无论闲置多久不低于 55
+        now = 86400 * 1000
+        for idle in (30, 120, 365):
+            updated = now - 86400 * idle
+            eff = effective_favor(95, updated, now, half_life=10, baseline=0, floor=55)
+            assert eff == 55.0
+
+    def test_no_floor_decays_past(self):
+        # 无地板：同样的记录会掉到 55 以下（对照组）
+        now = 86400 * 1000
+        updated = now - 86400 * 120
+        assert effective_favor(95, updated, now, half_life=10, baseline=0) == 0.0
+
+    def test_floor_not_lift_low_stored(self):
+        # 地板只托底不上涨：存量 30（低于地板 55）不被抬高
+        now = 86400 * 1000
+        updated = now - 86400 * 10
+        eff = effective_favor(30, updated, now, half_life=10, baseline=0, floor=55)
+        assert eff == 15.0  # 30×0.5^1 正常衰减，未被地板抬高
+
+    def test_floor_below_baseline_ignored(self):
+        # 地板须高于 baseline 才有意义；否则忽略（正常向 baseline 收敛）
+        now = 86400 * 1000
+        updated = now - 86400 * 60
+        eff = effective_favor(95, updated, now, half_life=10, baseline=0, floor=-5)
+        assert eff == 1.5  # 95×0.5^6≈1.48→1.5，地板被忽略
+
+
+class TestDecayFloorService:
+    """服务层地板 = "最多跌两级"：挚爱（95）地板=亲密下沿 55；陌生/厌恶无地板。"""
+
+    def setup_method(self):
+        import tempfile
+
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+
+        self.dir = tempfile.mkdtemp()
+        self.storage = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.storage.init())
+
+    def _svc(self, floor_enabled=True):
+        return FavorService(
+            self.storage, LevelTable.from_config(None),
+            decay_enabled=True,
+            half_life_base=10, half_life_growth=1.3, half_life_max=60,
+            decay_floor_enabled=floor_enabled,
+        )
+
+    def test_floor_enabled_one_level_max(self):
+        import time as _t
+
+        svc = self._svc(True)
+        # 95（挚爱）闲置 120 天：地板 55 → 恰好停在亲密下沿
+        asyncio.run(self.storage.set_value("g", "u1", 95.0))
+        eff = svc._effective(95.0, _t.time() - 120 * 86400, 60.0)
+        assert eff == 55.0
+
+    def test_floor_disabled_decays_freely(self):
+        import time as _t
+
+        svc = self._svc(False)
+        eff = svc._effective(95.0, _t.time() - 120 * 86400, 60.0)
+        assert eff < 55.0  # 无地板：120 天衰到 55 以下
+
+    def test_low_levels_no_floor(self):
+        import time as _t
+
+        svc = self._svc(True)
+        # 陌生（5 分）没有地板：向 baseline 正常收敛（5×0.5^6≈0.08→0.1）
+        eff = svc._effective(5.0, _t.time() - 60 * 86400, 10.0)
+        assert eff == 0.1
+
+
+# ---------------- v1.27 升级里程碑 ----------------
+
+class TestMilestone:
+    def setup_method(self):
+        import tempfile
+
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+
+        self.dir = tempfile.mkdtemp()
+        self.storage = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.storage.init())
+        self.svc = FavorService(self.storage, LevelTable.from_config(None))
+
+    def test_level_up_with_logs(self):
+        logs = [
+            {"source": "judge", "reversed": 0, "ts": time.time(),
+             "favor_before": 29.0, "favor_after": 30.5, "delta": 1.5},
+        ]
+        m = self.svc.recent_milestone("g", "u1", logs=logs, hours=48)
+        assert m is not None and m[0] == "友好"
+
+    def test_admin_set_not_milestone(self):
+        # 管理员设置（source=admin）即使跨级也不算有机里程碑
+        logs = [
+            {"source": "admin", "reversed": 0, "ts": time.time(),
+             "favor_before": 29.0, "favor_after": 40.0, "delta": 11.0},
+        ]
+        assert self.svc.recent_milestone("g", "u1", logs=logs) is None
+
+    def test_reversed_not_milestone(self):
+        logs = [
+            {"source": "judge", "reversed": 1, "ts": time.time(),
+             "favor_before": 29.0, "favor_after": 30.5, "delta": 1.5},
+        ]
+        assert self.svc.recent_milestone("g", "u1", logs=logs) is None
+
+    def test_stale_milestone_out_of_window(self):
+        logs = [
+            {"source": "judge", "reversed": 0, "ts": time.time() - 72 * 3600,
+             "favor_before": 29.0, "favor_after": 30.5, "delta": 1.5},
+        ]
+        assert self.svc.recent_milestone("g", "u1", logs=logs, hours=48) is None
+
+    def test_downgrade_not_milestone(self):
+        logs = [
+            {"source": "judge", "reversed": 0, "ts": time.time(),
+             "favor_before": 35.0, "favor_after": 28.0, "delta": -7.0},
+        ]
+        assert self.svc.recent_milestone("g", "u1", logs=logs) is None
+
+
+class TestMilestoneInject:
+    def setup_method(self):
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        self.levels = LevelTable.from_config(None)
+        self.inject = InjectService(
+            self.levels, "[档] {nickname} {milestone} {interaction}"
+        )
+
+    def _rec(self):
+        from astrbot_plugin_xinxian.core.models import FavorRecord
+
+        return FavorRecord(group_id="g", user_id="u1", favor=30.0)
+
+    def test_milestone_line_rendered(self):
+        block = self.inject.build_block(
+            self._rec(), is_master=False, nickname="阿狸",
+            milestone=("友好", time.time()),
+        )
+        assert "友好" in block and "关系里程碑" in block
+
+    def test_no_milestone_empty(self):
+        block = self.inject.build_block(
+            self._rec(), is_master=False, nickname="阿狸", milestone=None
+        )
+        assert "关系里程碑" not in block
+
+    def test_interaction_ladder(self):
+        # 迁就度阶梯：陌生好奇提问、挚爱有话直说
+        assert "好奇" in self.levels.interaction_of(5)
+        assert "毫无保留" in self.levels.interaction_of(99)
+
+    def test_interaction_rendered_in_block(self):
+        block = self.inject.build_block(self._rec(), is_master=False, nickname="阿狸")
+        # 模板 {interaction} 占位符直接渲染等级对应的互动风格文本
+        assert "愿意给建议" in block  # favor=30 → 友好档默认互动风格
+
+    def test_old_custom_template_still_renders(self):
+        # 旧自定义模板（无新占位符）：format 提供全部值仍可渲染，不炸
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        inj = InjectService(self.levels, "[档] {nickname} {favor} {level_name}")
+        block = inj.build_block(
+            self._rec(), is_master=False, nickname="阿狸",
+            milestone=("挚友", time.time()),
+        )
+        assert "阿狸" in block  # 渲染成功即可（里程碑自然消隐）

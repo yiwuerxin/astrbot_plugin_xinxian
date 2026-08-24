@@ -42,6 +42,11 @@ class EconomyConfig:
             得罪后进入修复期（信任研究：摧毁快、修复慢）。0=关闭。
         repair_hours: 修复期时长（小时）：窗口内正向分值被压制。
         repair_factor: 修复期内正分乘数（0.5=半效涨回）。1=不压制。
+        repair_scale_high: 等级调制上限——深关系（亲密及以上）冒犯时，
+            修复期时长与压制强度按此缩放（Dirks 2011：高信任中的冒犯
+            更难修复）。1=不缩放（回到旧版统一 48h 行为）。
+        repair_scale_low: 浅关系（友好及以下）冒犯的缩放系数，默认 1
+            （保持旧版行为）。
     """
 
     noise_floor: float = 0.5
@@ -51,6 +56,8 @@ class EconomyConfig:
     repair_threshold: float = 2.0
     repair_hours: float = 48.0
     repair_factor: float = 0.5
+    repair_scale_high: float = 1.5
+    repair_scale_low: float = 1.0
 
     @classmethod
     def from_config(cls, cfg: dict | None) -> "EconomyConfig | None":
@@ -81,6 +88,8 @@ class EconomyConfig:
             repair_threshold=float(raw.get("repair_threshold", 2.0)),
             repair_hours=float(raw.get("repair_hours", 48.0)),
             repair_factor=float(raw.get("repair_factor", 0.5)),
+            repair_scale_high=max(1.0, float(raw.get("repair_scale_high", 1.5))),
+            repair_scale_low=max(1.0, float(raw.get("repair_scale_low", 1.0))),
         )
 
 
@@ -147,3 +156,30 @@ def apply(
 
     res.delta = d
     return res
+
+
+# 修复期等级调制的分界：这些等级的冒犯视为"深关系冒犯"（吃 repair_scale_high）
+DEEP_LEVELS = frozenset({"亲密", "挚友", "挚爱"})
+
+
+def repair_params_for_level(
+    level_name: str, cfg: "EconomyConfig | None"
+) -> tuple[float, float]:
+    """按冒犯时的等级返回 (修复期小时数, 修复期正分乘数)。
+
+    信任修复研究（Dirks et al. 2011）：冒犯前的信任水平决定修复难度——
+    高信任关系中的冒犯用廉价言语更难修复。深关系（亲密/挚友/挚爱）
+    冒犯 → hours × scale_high 且 factor 进一步压深（1-(1-factor)×scale_high）；
+    浅关系 → hours × scale_low（默认 1 = 旧版统一行为）。
+    cfg 为 None 时返回 (0, 1)（未启用经济层，无修复期）。
+    """
+    if cfg is None or cfg.repair_threshold <= 0 or cfg.repair_hours <= 0:
+        return 0.0, 1.0
+    if level_name in DEEP_LEVELS and cfg.repair_scale_high > 1.0:
+        hours = cfg.repair_hours * cfg.repair_scale_high
+        # factor 压深：0.5、scale 1.5 → 1-0.5*1.5=0.25（更难涨回）
+        factor = max(0.0, 1.0 - (1.0 - cfg.repair_factor) * cfg.repair_scale_high)
+    else:
+        hours = cfg.repair_hours * max(1.0, cfg.repair_scale_low)
+        factor = cfg.repair_factor
+    return round(hours, 1), round1(factor)

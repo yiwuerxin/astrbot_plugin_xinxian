@@ -121,15 +121,19 @@ async def on_llm_request(
         nickname = event.get_sender_name()
     except Exception:
         nickname = None
-    events = await deps.favor.recent_events(
+    logs = await deps.favor.query_logs(group_id, user_id, limit=15)
+    events = deps.favor.recent_events(
         group_id, user_id, deps.memory_count, deps.memory_days,
+        logs=logs,
         sig_threshold=deps.memory_sig_threshold,
         sig_window_mult=deps.memory_sig_window_mult,
     )
+    milestone = deps.favor.recent_milestone(group_id, user_id, logs=logs)
     block = deps.inject.build_block(
         rec,
         is_master=deps.favor.is_master(user_id),
         nickname=nickname,
         recent_events=events,
+        milestone=milestone,
     )
     deps.inject.inject(req, block)

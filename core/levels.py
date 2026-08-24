@@ -41,7 +41,18 @@ DEFAULT_DISCLOSURE: dict[str, str] = {
     "挚爱": "毫无保留地展露自己，所有心事都想第一个告诉 TA",
 }
 
-# 等级名 -> 配置键（_conf_schema.json 中 levels 下的键）
+# 互动风格阶梯默认值（迁就度单调递减：关系越深越"敢说话"）。
+# 依据：Chu 2024 对真实陪伴对话的逆强化学习——对已建立依恋的用户给更多
+# 建议与更少挑战是"在乎"的信号；对陌生人保持好奇提问、少评价。
+DEFAULT_INTERACTION: dict[str, str] = {
+    "厌恶": "不主动搭话，被问到才极简回应",
+    "陌生": "以好奇提问为主，少评价少建议，保持礼貌",
+    "认识": "可以开玩笑和接梗，偶尔给点小建议",
+    "友好": "愿意给建议、分享观点，也会温和地表达不同意见",
+    "亲密": "敢给建议、可以温和地怼回去，偶尔护短",
+    "挚友": "有话直说，该泼冷水就泼，事后仍然向着 TA",
+    "挚爱": "毫无保留地说真实想法，任性和提醒都不藏着",
+}
 _LEVEL_KEYS = {
     "厌恶": "yanwu",
     "陌生": "mosheng",
@@ -85,6 +96,10 @@ class LevelTable:
                     disclosure=str(
                         item.get("disclosure") or DEFAULT_DISCLOSURE[default.name]
                     ),
+                    interaction=str(
+                        item.get("interaction")
+                        or DEFAULT_INTERACTION[default.name]
+                    ),
                 )
             )
         return cls(levels)
@@ -109,6 +124,10 @@ class LevelTable:
     def disclosure_of(self, favor: float) -> str:
         """返回自我表露分寸：关系越深，袒露层越深（主人/非主人共用）。"""
         return self.level_of(favor).disclosure
+
+    def interaction_of(self, favor: float) -> str:
+        """返回互动风格（迁就度阶梯）：关系越深越"敢说话"。空配置自然消隐。"""
+        return self.level_of(favor).interaction
 
     def all(self) -> list[LevelDef]:
         """返回全部等级（升序）。"""
