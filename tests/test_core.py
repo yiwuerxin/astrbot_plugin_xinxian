@@ -1235,6 +1235,53 @@ class TestLevelEconomy:
         assert eco.noise_floor == 0.2
         assert eco.level_mult["挚爱"] == 0.1 and eco.level_mult["挚友"] == 0.35  # 未给键回落默认
 
+    def test_preset_galgame_easier_up(self):
+        # galgame：负面权重更轻、同日衰减更缓、修复更宽松
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        eco = EconomyConfig.from_config({"preset": "galgame"})
+        assert eco.negative_weight == 1.2
+        assert eco.same_day_decay == 0.15
+        assert eco.repair_factor == 0.7 and eco.repair_hours == 36.0
+        assert eco.level_mult["挚爱"] == 0.4
+
+    def test_preset_realistic_harder_up(self):
+        # realistic：负面更重、同日衰减更陡、修复更严苛
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        eco = EconomyConfig.from_config({"preset": "realistic"})
+        assert eco.negative_weight == 1.8
+        assert eco.same_day_decay == 0.35
+        assert eco.repair_factor == 0.35 and eco.repair_hours == 72.0
+        assert eco.level_mult["挚爱"] == 0.15
+
+    def test_preset_explicit_config_overrides(self):
+        # 显式参数优先于 preset：galgame 下手动定 negative_weight 依然生效
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        eco = EconomyConfig.from_config({"preset": "galgame", "negative_weight": 2.0})
+        assert eco.negative_weight == 2.0
+        assert eco.same_day_decay == 0.15  # 未覆盖的键仍取 preset 值
+
+    def test_preset_unknown_falls_back_default(self):
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
+
+        eco = EconomyConfig.from_config({"preset": "不是预设"})
+        assert eco.negative_weight == 1.5  # 回落 default
+
+    def test_preset_default_equals_legacy(self):
+        # default 预设与旧版硬编码默认完全一致（行为零变化）；
+        # repair_scale_* 不在预设内，独立取默认值
+        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig, DEFAULT_LEVEL_MULT
+
+        eco = EconomyConfig.from_config({})
+        legacy = EconomyConfig()
+        assert eco.noise_floor == legacy.noise_floor
+        assert eco.negative_weight == legacy.negative_weight
+        assert eco.same_day_decay == legacy.same_day_decay
+        assert eco.level_mult == dict(DEFAULT_LEVEL_MULT)
+        assert eco.repair_scale_high == 1.5 and eco.repair_scale_low == 1.0
+
 
 # ---------------- apply_judge 集成（economy 接入 FavorService） ----------------
 

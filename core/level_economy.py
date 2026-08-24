@@ -27,6 +27,34 @@ DEFAULT_LEVEL_MULT: dict[str, float] = {
     "挚爱": 0.2,
 }
 
+# 手感预设（economy.preset）：参数组合打包，显式配置覆盖 preset 值。
+# galgame＝易升难降（努力有回报，怎么聊都涨）；realistic＝难升易降
+# （好感金贵，得罪一次疼很久）。repair_scale_* 不进预设（等级调制
+# 是独立机制，随 preset 联动会混淆两个概念）。
+PRESETS: dict[str, dict] = {
+    "default": {
+        "noise_floor": 0.5, "negative_weight": 1.5, "same_day_decay": 0.25,
+        "level_mult": dict(DEFAULT_LEVEL_MULT),
+        "repair_threshold": 2.0, "repair_hours": 48.0, "repair_factor": 0.5,
+    },
+    "galgame": {
+        "noise_floor": 0.3, "negative_weight": 1.2, "same_day_decay": 0.15,
+        "level_mult": {
+            "厌恶": 1.0, "陌生": 1.0, "认识": 1.0,
+            "友好": 0.9, "亲密": 0.75, "挚友": 0.55, "挚爱": 0.4,
+        },
+        "repair_threshold": 2.5, "repair_hours": 36.0, "repair_factor": 0.7,
+    },
+    "realistic": {
+        "noise_floor": 0.6, "negative_weight": 1.8, "same_day_decay": 0.35,
+        "level_mult": {
+            "厌恶": 1.0, "陌生": 1.0, "认识": 0.9,
+            "友好": 0.6, "亲密": 0.4, "挚友": 0.25, "挚爱": 0.15,
+        },
+        "repair_threshold": 1.8, "repair_hours": 72.0, "repair_factor": 0.35,
+    },
+}
+
 
 @dataclass
 class EconomyConfig:
@@ -63,31 +91,36 @@ class EconomyConfig:
     def from_config(cls, cfg: dict | None) -> "EconomyConfig | None":
         """从 economy.* 配置构建；缺省回落默认值。enabled=false 时返回 None。
 
+        preset 先垫底（default/galgame/realistic 三档手感预设），显式给出
+        的具体参数覆盖 preset 值——一键切手感，细调仍可逐参数覆盖。
+        repair_scale_* 不在预设内（等级调制独立配置）。
         level_mult 的配置键为等级拼音（与 _conf_schema.json 一致），
         这里统一翻成中文等级名存储（apply 按等级名查表）。
         """
         raw = cfg or {}
         if not bool(raw.get("enabled", True)):
             return None
+        preset_name = str(raw.get("preset", "default") or "default").strip().lower()
+        preset = PRESETS.get(preset_name, PRESETS["default"])
         _PINYIN = {
             "yanwu": "厌恶", "mosheng": "陌生", "renshi": "认识", "youhao": "友好",
             "qinmi": "亲密", "zhiyou": "挚友", "zhiai": "挚爱",
         }
         mult_raw = raw.get("level_mult") or {}
-        mult = dict(DEFAULT_LEVEL_MULT)
+        mult = dict(preset["level_mult"])
         for key, name in _PINYIN.items():
             if key in mult_raw:
                 mult[name] = float(mult_raw[key])
             elif name in mult_raw:  # 容错：直接给中文键也认
                 mult[name] = float(mult_raw[name])
         return cls(
-            noise_floor=float(raw.get("noise_floor", 0.5)),
-            negative_weight=float(raw.get("negative_weight", 1.5)),
-            same_day_decay=float(raw.get("same_day_decay", 0.25)),
+            noise_floor=float(raw.get("noise_floor", preset["noise_floor"])),
+            negative_weight=float(raw.get("negative_weight", preset["negative_weight"])),
+            same_day_decay=float(raw.get("same_day_decay", preset["same_day_decay"])),
             level_mult=mult,
-            repair_threshold=float(raw.get("repair_threshold", 2.0)),
-            repair_hours=float(raw.get("repair_hours", 48.0)),
-            repair_factor=float(raw.get("repair_factor", 0.5)),
+            repair_threshold=float(raw.get("repair_threshold", preset["repair_threshold"])),
+            repair_hours=float(raw.get("repair_hours", preset["repair_hours"])),
+            repair_factor=float(raw.get("repair_factor", preset["repair_factor"])),
             repair_scale_high=max(1.0, float(raw.get("repair_scale_high", 1.5))),
             repair_scale_low=max(1.0, float(raw.get("repair_scale_low", 1.0))),
         )
