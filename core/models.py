@@ -53,6 +53,8 @@ class LevelDef:
         guidance: 注入提示词用的态度指引文本。
         master_guidance: 主人专属态度指引；空串表示无，回落普通 guidance。
         disclosure: 自我表露分寸（社会渗透理论：关系越深，袒露的层越深）。
+        interaction: 互动风格（迁就度阶梯：关系越深越"敢说话"——提问→
+            建议→温和反驳→有话直说）。空串表示未配置。
     """
 
     name: str
@@ -61,6 +63,7 @@ class LevelDef:
     guidance: str
     master_guidance: str = ""
     disclosure: str = ""
+    interaction: str = ""
 
 
 @dataclass

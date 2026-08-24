@@ -63,11 +63,14 @@ class InjectService:
         is_master: bool,
         nickname: str | None = None,
         recent_events: list[dict] | None = None,
+        milestone: tuple[str, float] | None = None,
     ) -> str:
         """按模板渲染好感度档案块。主人身份以文本叠加，不影响数值逻辑。
 
         recent_events：最近变动流水（dict 列表），渲染为「近期印象」注入，
         让小千记得具体的事，而非只看一个分数。
+        milestone：(新等级名, ts)——48h 内的升级跨越，渲染为「关系里程碑」，
+        让小千"知道"关系刚升温（LoveyDovey/原神式升级仪式感）；None 则空。
         """
         lv = self._levels.level_of(record.favor)
         master_line = (
@@ -77,9 +80,11 @@ class InjectService:
         )
         guidance = self._levels.guidance_of(record.favor, master=is_master)
         disclosure = self._levels.disclosure_of(record.favor)
+        interaction = self._levels.interaction_of(record.favor)
         events_block = self._format_events(recent_events or [])
         relationship_block = self._format_relationship(record.relationship)
         impression_block = self._format_impression(record)
+        milestone_block = self._format_milestone(milestone)
         block = self._template.format(
             nickname=nickname or "对方",
             user_id=record.user_id,
@@ -89,9 +94,11 @@ class InjectService:
             level_name=lv.name,
             level_guidance=guidance,
             disclosure=disclosure,
+            interaction=interaction,
             recent_events=events_block,
             relationship=relationship_block,
             impression=impression_block,
+            milestone=milestone_block,
         )
         if self._persona_anchor:
             block += "\n" + self._persona_anchor
@@ -106,6 +113,17 @@ class InjectService:
             return ""
         label, guidance = resolved
         return f"\n- 你们的关系：{label}（{guidance}）"
+
+    @staticmethod
+    def _format_milestone(milestone: tuple[str, float] | None) -> str:
+        """把升级里程碑渲染为「关系里程碑」段；无里程碑返回空串。"""
+        if not milestone:
+            return ""
+        name, ts = milestone
+        now = time.time()
+        days = int((now - float(ts or 0)) // 86400)
+        when = "今天" if days <= 0 else ("昨天" if days == 1 else f"{days}天前")
+        return f"\n- 关系里程碑：{when}你们的关系刚升到了「{name}」——可以自然地提起这份更近的关系"
 
     @staticmethod
     def _format_events(events: list[dict]) -> str:

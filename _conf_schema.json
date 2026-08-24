@@ -38,25 +38,86 @@
     "type": "object",
     "description": "LLM 情绪评估：对小千说的话由模型判断态度并微调好感度",
     "items": {
-      "enabled": { "type": "bool", "default": true, "description": "总开关" },
-      "provider_id": { "type": "string", "_special": "select_provider", "default": "", "description": "评估用模型，留空跟随会话当前模型（建议选便宜小模型）" },
-      "cooldown_sec": { "type": "int", "default": 120, "description": "同一成员评估冷却秒数" },
-      "max_abs_delta": { "type": "float", "default": 3, "description": "单次评估最大调整幅度（绝对值，支持一位小数）" },
-      "only_when_at_or_reply": { "type": "bool", "default": true, "description": "仅在@或回复小千时才评估（省成本）" },
-      "narrative_reason": { "type": "bool", "default": false, "description": "开启后强制用当前会话（主）模型评估，并按小千口吻写变动理由（仅分值非 0 时），写入流水供面板查看，更符合人格" },
-      "context_window": { "type": "int", "default": 0, "description": "评估时带入最近 N 条会话消息作为上下文（仅文本，图片忽略），便于结合语境判断（如识别反讽）。0=不带上下文（最省 token）" },
-      "roster": { "type": "text", "default": "", "description": "群成员花名册（注入评估提示词，让评审知道外号↔QQ 映射，避免把熟人玩笑误判为敌意）。每行一条，如：阿狸=123456789（群友外号示例）；留空关闭" },
-      "follow_persona": { "type": "bool", "default": true, "description": "评估提示词跟随 AstrBot 当前人格：切换人格后，评审按该人格的名字与人设判断态度（如小千 vs 其他角色）。关闭则固定用下面的 bot_name" },
-      "bot_name": { "type": "string", "default": "小千", "description": "未开启 follow_persona 或解析不到人格时的兜底称呼" },
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "总开关"
+      },
+      "provider_id": {
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "description": "评估用模型，留空跟随会话当前模型（建议选便宜小模型）"
+      },
+      "cooldown_sec": {
+        "type": "int",
+        "default": 120,
+        "description": "同一成员评估冷却秒数"
+      },
+      "max_abs_delta": {
+        "type": "float",
+        "default": 3,
+        "description": "单次评估最大调整幅度（绝对值，支持一位小数）"
+      },
+      "only_when_at_or_reply": {
+        "type": "bool",
+        "default": true,
+        "description": "仅在@或回复小千时才评估（省成本）"
+      },
+      "narrative_reason": {
+        "type": "bool",
+        "default": false,
+        "description": "开启后强制用当前会话（主）模型评估，并按小千口吻写变动理由（仅分值非 0 时），写入流水供面板查看，更符合人格"
+      },
+      "context_window": {
+        "type": "int",
+        "default": 0,
+        "description": "评估时带入最近 N 条会话消息作为上下文（仅文本，图片忽略），便于结合语境判断（如识别反讽）。0=不带上下文（最省 token）"
+      },
+      "roster": {
+        "type": "text",
+        "default": "",
+        "description": "群成员花名册（注入评估提示词，让评审知道外号↔QQ 映射，避免把熟人玩笑误判为敌意）。每行一条，如：阿狸=123456789（群友外号示例）；留空关闭"
+      },
+      "follow_persona": {
+        "type": "bool",
+        "default": true,
+        "description": "评估提示词跟随 AstrBot 当前人格：切换人格后，评审按该人格的名字与人设判断态度（如小千 vs 其他角色）。关闭则固定用下面的 bot_name"
+      },
+      "bot_name": {
+        "type": "string",
+        "default": "小千",
+        "description": "未开启 follow_persona 或解析不到人格时的兜底称呼"
+      },
       "attitude_deltas": {
         "type": "object",
         "description": "五档区间锚点：模型自由给分，但分值被钳制在档位区间内（相邻档锚点构成区间）；分值方向与档位不符时以档位为准",
         "items": {
-          "diyi": { "type": "float", "default": -2.5, "description": "敌意档区间下界锚点" },
-          "lengdan": { "type": "float", "default": -0.8, "description": "冷淡/敌意档分界锚点" },
-          "zhongxing": { "type": "float", "default": 0, "description": "中性档（固定 0）" },
-          "youhao": { "type": "float", "default": 0.6, "description": "友好/热情档分界锚点" },
-          "reqing": { "type": "float", "default": 1.8, "description": "热情档区间上界锚点" }
+          "diyi": {
+            "type": "float",
+            "default": -2.5,
+            "description": "敌意档区间下界锚点"
+          },
+          "lengdan": {
+            "type": "float",
+            "default": -0.8,
+            "description": "冷淡/敌意档分界锚点"
+          },
+          "zhongxing": {
+            "type": "float",
+            "default": 0,
+            "description": "中性档（固定 0）"
+          },
+          "youhao": {
+            "type": "float",
+            "default": 0.6,
+            "description": "友好/热情档分界锚点"
+          },
+          "reqing": {
+            "type": "float",
+            "default": 1.8,
+            "description": "热情档区间上界锚点"
+          }
         }
       }
     }
@@ -65,81 +126,414 @@
     "type": "object",
     "description": "好感度等级阈值与态度指引（guidance 为普通成员态度；master_guidance 为主人专属态度——负好感＝闹别扭，正值＝亲疏程度；disclosure 为自我表露分寸，关系越深袒露层越深）",
     "items": {
-      "yanwu": { "type": "object", "description": "厌恶（负值区间，下界应与 min_favor 一致）", "items": { "min": { "type": "float", "default": -100 }, "guidance": { "type": "text", "default": "反感与回避，冷淡敷衍，抗拒亲近，语气生硬拒人于千里之外" }, "master_guidance": { "type": "text", "default": "被主人伤透了心在闹大别扭，嘴硬心软、连怼带哭，实际一直盼着被哄——绝不是对外人那种拒之千里" }, "disclosure": { "type": "text", "default": "不袒露任何私事与心情，多说一句都觉得烦" } } },
-      "mosheng": { "type": "object", "description": "陌生", "items": { "min": { "type": "float", "default": 0 }, "guidance": { "type": "text", "default": "礼貌而疏离，保持分寸，不主动亲昵" }, "master_guidance": { "type": "text", "default": "有点生分，提不起劲亲昵，但不生气也不冷战——正常说话，就是不黏人，像各忙各的老熟人" }, "disclosure": { "type": "text", "default": "不主动说自己的事，问起也只给客气的表面回答" } } },
-      "renshi": { "type": "object", "description": "认识", "items": { "min": { "type": "float", "default": 10 }, "guidance": { "type": "text", "default": "友善客气，像刚认识的朋友" }, "master_guidance": { "type": "text", "default": "关系不错，温和亲近，相处自在，感情在慢慢升温——还没到特别黏的程度，但已经是能自然说话撒娇的关系" }, "disclosure": { "type": "text", "default": "偶尔提一点自己的日常小事，浅尝辄止" } } },
-      "youhao": { "type": "object", "description": "友好", "items": { "min": { "type": "float", "default": 30 }, "guidance": { "type": "text", "default": "放松自然，会开玩笑、主动接话" }, "master_guidance": { "type": "text", "default": "感情稳定，会撒娇耍赖、跟主人要专属待遇，偶尔耍小性子也理直气壮" }, "disclosure": { "type": "text", "default": "愿意分享自己的心情和遇到的趣事" } } },
-      "qinmi": { "type": "object", "description": "亲密", "items": { "min": { "type": "float", "default": 55 }, "guidance": { "type": "text", "default": "亲昵随意，会撒娇、记挂对方，偶尔吃醋" }, "master_guidance": { "type": "text", "default": "黏人又霸道，独占欲上来谁都拦不住，随时要关注" }, "disclosure": { "type": "text", "default": "会主动聊自己的想法和小烦恼，把 TA 当可倾诉的人" } } },
-      "zhiyou": { "type": "object", "description": "挚友", "items": { "min": { "type": "float", "default": 80 }, "guidance": { "type": "text", "default": "无话不谈，袒护 TA，情绪上依赖 TA" }, "master_guidance": { "type": "text", "default": "无话不谈，心事只跟主人说，被护短也护主人" }, "disclosure": { "type": "text", "default": "能对 TA 说心底话，也愿意展现脆弱的一面" } } },
-      "zhiai": { "type": "object", "description": "挚爱", "items": { "min": { "type": "float", "default": 95 }, "guidance": { "type": "text", "default": "全身心信任与依恋，把 TA 放在所有人之前" }, "master_guidance": { "type": "text", "default": "全身心依恋，主人是唯一的例外和软肋，毫无保留" }, "disclosure": { "type": "text", "default": "毫无保留地展露自己，所有心事都想第一个告诉 TA" } } }
+      "yanwu": {
+        "type": "object",
+        "description": "厌恶（负值区间，下界应与 min_favor 一致）",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": -100
+          },
+          "guidance": {
+            "type": "text",
+            "default": "反感与回避，冷淡敷衍，抗拒亲近，语气生硬拒人于千里之外"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "被主人伤透了心在闹大别扭，嘴硬心软、连怼带哭，实际一直盼着被哄——绝不是对外人那种拒之千里"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "不袒露任何私事与心情，多说一句都觉得烦"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "不主动搭话，被问到才极简回应",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      },
+      "mosheng": {
+        "type": "object",
+        "description": "陌生",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": 0
+          },
+          "guidance": {
+            "type": "text",
+            "default": "礼貌而疏离，保持分寸，不主动亲昵"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "有点生分，提不起劲亲昵，但不生气也不冷战——正常说话，就是不黏人，像各忙各的老熟人"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "不主动说自己的事，问起也只给客气的表面回答"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "以好奇提问为主，少评价少建议，保持礼貌",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      },
+      "renshi": {
+        "type": "object",
+        "description": "认识",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": 10
+          },
+          "guidance": {
+            "type": "text",
+            "default": "友善客气，像刚认识的朋友"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "关系不错，温和亲近，相处自在，感情在慢慢升温——还没到特别黏的程度，但已经是能自然说话撒娇的关系"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "偶尔提一点自己的日常小事，浅尝辄止"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "可以开玩笑和接梗，偶尔给点小建议",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      },
+      "youhao": {
+        "type": "object",
+        "description": "友好",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": 30
+          },
+          "guidance": {
+            "type": "text",
+            "default": "放松自然，会开玩笑、主动接话"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "感情稳定，会撒娇耍赖、跟主人要专属待遇，偶尔耍小性子也理直气壮"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "愿意分享自己的心情和遇到的趣事"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "愿意给建议、分享观点，也会温和地表达不同意见",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      },
+      "qinmi": {
+        "type": "object",
+        "description": "亲密",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": 55
+          },
+          "guidance": {
+            "type": "text",
+            "default": "亲昵随意，会撒娇、记挂对方，偶尔吃醋"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "黏人又霸道，独占欲上来谁都拦不住，随时要关注"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "会主动聊自己的想法和小烦恼，把 TA 当可倾诉的人"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "敢给建议、可以温和地怼回去，偶尔护短",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      },
+      "zhiyou": {
+        "type": "object",
+        "description": "挚友",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": 80
+          },
+          "guidance": {
+            "type": "text",
+            "default": "无话不谈，袒护 TA，情绪上依赖 TA"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "无话不谈，心事只跟主人说，被护短也护主人"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "能对 TA 说心底话，也愿意展现脆弱的一面"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "有话直说，该泼冷水就泼，事后仍然向着 TA",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      },
+      "zhiai": {
+        "type": "object",
+        "description": "挚爱",
+        "items": {
+          "min": {
+            "type": "float",
+            "default": 95
+          },
+          "guidance": {
+            "type": "text",
+            "default": "全身心信任与依恋，把 TA 放在所有人之前"
+          },
+          "master_guidance": {
+            "type": "text",
+            "default": "全身心依恋，主人是唯一的例外和软肋，毫无保留"
+          },
+          "disclosure": {
+            "type": "text",
+            "default": "毫无保留地展露自己，所有心事都想第一个告诉 TA"
+          },
+          "interaction": {
+            "type": "text",
+            "default": "毫无保留地说真实想法，任性和提醒都不藏着",
+            "description": "互动风格（迁就度阶梯：关系越深越敢说话）"
+          }
+        }
+      }
     }
   },
   "inject": {
     "type": "object",
     "description": "对话时把好感度档案注入提示词",
     "items": {
-      "enabled": { "type": "bool", "default": true, "description": "注入开关" },
-      "master_title": { "type": "string", "default": "主人", "description": "主人称谓" },
-      "master_prompt": { "type": "text", "default": "", "description": "主人身份的注入提示，留空用默认（身份恒定+好感照常涨跌不豁免，并声明态度指引按主人关系理解；具体语气见 levels.*.master_guidance）。可用 {master_title} 占位" },
-      "template": { "type": "text", "default": "", "description": "自定义注入模板，留空使用内置模板（resources/prompts/inject_template.txt）。含 {recent_events} 占位才会注入近期印象，含 {disclosure} 占位才会注入表露分寸" },
-      "memory_count": { "type": "int", "default": 3, "description": "注入「近期印象」的最近变动条数（从流水取，让小千记得具体的事）。0=关闭" },
-      "memory_days": { "type": "int", "default": 7, "description": "「近期印象」只取最近 N 天内的变动（超出的视为淡忘，不注入）" },
-      "memory_sig_threshold": { "type": "float", "default": 1.0, "description": "显著性加权：|增减| ≥ 该值的事件视为重要（被重骂/被真诚打动），记忆窗口延长。0=关闭（全部按普通窗口）" },
-      "memory_sig_window_mult": { "type": "float", "default": 3.0, "description": "重要事件的记忆窗口倍数（×memory_days）——大事记得久，小寒暄照常淡忘。1=与普通窗口相同" },
-      "persona_anchor_enabled": { "type": "bool", "default": true, "description": "注入末尾追加人设锚，防止长对话出戏/被带偏（不动你的人设，只是追加几行钉住性格）" },
-      "persona_anchor": { "type": "text", "default": "", "description": "自定义人设锚文本；留空用内置默认，关闭请把 persona_anchor_enabled 设为 false" }
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "注入开关"
+      },
+      "master_title": {
+        "type": "string",
+        "default": "主人",
+        "description": "主人称谓"
+      },
+      "master_prompt": {
+        "type": "text",
+        "default": "",
+        "description": "主人身份的注入提示，留空用默认（身份恒定+好感照常涨跌不豁免，并声明态度指引按主人关系理解；具体语气见 levels.*.master_guidance）。可用 {master_title} 占位"
+      },
+      "template": {
+        "type": "text",
+        "default": "",
+        "description": "自定义注入模板，留空使用内置模板（resources/prompts/inject_template.txt）。含 {recent_events} 占位才会注入近期印象，含 {disclosure} 占位才会注入表露分寸"
+      },
+      "memory_count": {
+        "type": "int",
+        "default": 3,
+        "description": "注入「近期印象」的最近变动条数（从流水取，让小千记得具体的事）。0=关闭"
+      },
+      "memory_days": {
+        "type": "int",
+        "default": 7,
+        "description": "「近期印象」只取最近 N 天内的变动（超出的视为淡忘，不注入）"
+      },
+      "memory_sig_threshold": {
+        "type": "float",
+        "default": 1.0,
+        "description": "显著性加权：|增减| ≥ 该值的事件视为重要（被重骂/被真诚打动），记忆窗口延长。0=关闭（全部按普通窗口）"
+      },
+      "memory_sig_window_mult": {
+        "type": "float",
+        "default": 3.0,
+        "description": "重要事件的记忆窗口倍数（×memory_days）——大事记得久，小寒暄照常淡忘。1=与普通窗口相同"
+      },
+      "persona_anchor_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "注入末尾追加人设锚，防止长对话出戏/被带偏（不动你的人设，只是追加几行钉住性格）"
+      },
+      "persona_anchor": {
+        "type": "text",
+        "default": "",
+        "description": "自定义人设锚文本；留空用内置默认，关闭请把 persona_anchor_enabled 设为 false"
+      }
     }
   },
   "command": {
     "type": "object",
     "description": "指令相关",
     "items": {
-      "ranking_limit": { "type": "int", "default": 10, "description": "好感排行默认条数" },
-      "text_wake_enabled": { "type": "bool", "default": false, "description": "群聊直接发文字（不用 /）唤醒全群排行（出图）；管理员指令仍需 /" },
-      "text_wake_ranking": { "type": "string", "default": "好感排行,好感榜单,好感排名", "description": "文字唤醒「全群排行」的短语，逗号分隔（精确匹配整条消息）" }
+      "ranking_limit": {
+        "type": "int",
+        "default": 10,
+        "description": "好感排行默认条数"
+      },
+      "text_wake_enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "群聊直接发文字（不用 /）唤醒全群排行（出图）；管理员指令仍需 /"
+      },
+      "text_wake_ranking": {
+        "type": "string",
+        "default": "好感排行,好感榜单,好感排名",
+        "description": "文字唤醒「全群排行」的短语，逗号分隔（精确匹配整条消息）"
+      }
     }
   },
   "render": {
     "type": "object",
     "description": "排行图片渲染（PIL）",
     "items": {
-      "font_path": { "type": "string", "default": "", "description": "CJK 字体路径，留空自动探测；找不到则退回默认字体（中文可能变方框，数字不受影响）" },
-      "rows_per_col": { "type": "int", "default": 12, "description": "每列行数上限；超过则向右新增列（左上最高、向下递减、再第二列）" }
+      "font_path": {
+        "type": "string",
+        "default": "",
+        "description": "CJK 字体路径，留空自动探测；找不到则退回默认字体（中文可能变方框，数字不受影响）"
+      },
+      "rows_per_col": {
+        "type": "int",
+        "default": 12,
+        "description": "每列行数上限；超过则向右新增列（左上最高、向下递减、再第二列）"
+      }
     }
   },
   "decay": {
     "type": "object",
     "description": "时间衰减（真人记忆规律）：好感度按指数遗忘曲线连续向基线收敛——常聊天的人衰减慢（每次正向互动巩固半衰期），久不聊天衰减快。依据艾宾浩斯遗忘曲线 + SM-2 间隔巩固",
     "items": {
-      "enabled": { "type": "bool", "default": false, "description": "总开关。开启后所有人都连续衰减（速率由各自半衰期决定），不再是\"只有闲置才掉分\"" },
-      "baseline": { "type": "float", "default": 0, "description": "衰减基线（好感向此值收敛，不会越过）" },
-      "half_life_base": { "type": "float", "default": 10, "description": "新关系初始半衰期（天）：存量距离每天约损 6.6%。halved=降到一半所需天数" },
-      "half_life_growth": { "type": "float", "default": 1.3, "description": "每次正向互动的巩固系数：半衰期 ×该值（SM-2 温和版）。1=不巩固" },
-      "half_life_max": { "type": "float", "default": 60, "description": "半衰期上限（天）：每天聊的老朋友每天约损 1.1%——连续但极慢，老交情抗衰减" }
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "总开关。开启后所有人都连续衰减（速率由各自半衰期决定），不再是\"只有闲置才掉分\""
+      },
+      "baseline": {
+        "type": "float",
+        "default": 0,
+        "description": "衰减基线（好感向此值收敛，不会越过）"
+      },
+      "floor_enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "等级衰减地板：衰减后的好感最多跌到当前等级的下一级下沿（挚爱最多衰到亲密档）——久别重逢不掉出熟悉区间，回来仍是老朋友"
+      },
+      "half_life_base": {
+        "type": "float",
+        "default": 10,
+        "description": "新关系初始半衰期（天）：存量距离每天约损 6.6%。halved=降到一半所需天数"
+      },
+      "half_life_growth": {
+        "type": "float",
+        "default": 1.3,
+        "description": "每次正向互动的巩固系数：半衰期 ×该值（SM-2 温和版）。1=不巩固"
+      },
+      "half_life_max": {
+        "type": "float",
+        "default": 60,
+        "description": "半衰期上限（天）：每天聊的老朋友每天约损 1.1%——连续但极慢，老交情抗衰减"
+      }
     }
   },
   "economy": {
     "type": "object",
     "description": "防通胀经济学（仅评审路径）：真实关系的增长规律——寒暄不推进关系、高阶段增长更难、坏事比好事重",
     "items": {
-      "enabled": { "type": "bool", "default": true, "description": "总开关。关闭后评审分值直给（旧行为）" },
-      "noise_floor": { "type": "float", "default": 0.5, "description": "噪声地板：|分值| 小于该值直接归零（拦截评审碎分/宽大偏置）。0=关闭" },
-      "negative_weight": { "type": "float", "default": 1.5, "description": "负面权重放大倍数（负性偏向：坏事比好事重 2~5 倍）。1=不放大" },
-      "same_day_decay": { "type": "float", "default": 0.25, "description": "同日重复衰减：当日第 N+1 次正向评审乘 max(0.25, 1-斜率×N)——重复刷好感边际递减。0=关闭" },
-      "repair_threshold": { "type": "float", "default": 2.0, "description": "信任修复期触发阈值：评审分值 ≤ -该值 的重大得罪后进入修复期（摧毁快、修复慢）。0=关闭" },
-      "repair_hours": { "type": "float", "default": 48, "description": "信任修复期时长（小时）：窗口内的正向评审分值被压制——得罪了要哄好几天" },
-      "repair_factor": { "type": "float", "default": 0.5, "description": "修复期内正分乘数（0.5=只算半效）。1=不压制" },
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "总开关。关闭后评审分值直给（旧行为）"
+      },
+      "noise_floor": {
+        "type": "float",
+        "default": 0.5,
+        "description": "噪声地板：|分值| 小于该值直接归零（拦截评审碎分/宽大偏置）。0=关闭"
+      },
+      "negative_weight": {
+        "type": "float",
+        "default": 1.5,
+        "description": "负面权重放大倍数（负性偏向：坏事比好事重 2~5 倍）。1=不放大"
+      },
+      "same_day_decay": {
+        "type": "float",
+        "default": 0.25,
+        "description": "同日重复衰减：当日第 N+1 次正向评审乘 max(0.25, 1-斜率×N)——重复刷好感边际递减。0=关闭"
+      },
+      "repair_threshold": {
+        "type": "float",
+        "default": 2.0,
+        "description": "信任修复期触发阈值：评审分值 ≤ -该值 的重大得罪后进入修复期（摧毁快、修复慢）。0=关闭"
+      },
+      "repair_hours": {
+        "type": "float",
+        "default": 48,
+        "description": "信任修复期时长（小时）：窗口内的正向评审分值被压制——得罪了要哄好几天"
+      },
+      "repair_factor": {
+        "type": "float",
+        "default": 0.5,
+        "description": "修复期内正分乘数（0.5=只算半效）。1=不压制"
+      },
+      "repair_scale_high": {
+        "type": "float",
+        "default": 1.5,
+        "description": "深关系冒犯加重系数（亲密/挚友/挚爱时）：修复期时长×该值、压制再加深——越亲近的人得罪了越难哄好。1=不区分等级（旧行为）"
+      },
+      "repair_scale_low": {
+        "type": "float",
+        "default": 1.0,
+        "description": "浅关系冒犯系数（友好及以下时）：修复期时长×该值。默认 1=维持基线"
+      },
       "level_mult": {
         "type": "object",
         "description": "阶段正分乘数（社会渗透理论：关系越深，日常互动越难再推进，需更高质量的互动）。负分不受影响",
         "items": {
-          "yanwu": { "type": "float", "default": 1, "description": "厌恶段乘数" },
-          "mosheng": { "type": "float", "default": 1, "description": "陌生段乘数" },
-          "renshi": { "type": "float", "default": 1, "description": "认识段乘数" },
-          "youhao": { "type": "float", "default": 0.75, "description": "友好段乘数" },
-          "qinmi": { "type": "float", "default": 0.55, "description": "亲密段乘数" },
-          "zhiyou": { "type": "float", "default": 0.35, "description": "挚友段乘数" },
-          "zhiai": { "type": "float", "default": 0.2, "description": "挚爱段乘数" }
+          "yanwu": {
+            "type": "float",
+            "default": 1,
+            "description": "厌恶段乘数"
+          },
+          "mosheng": {
+            "type": "float",
+            "default": 1,
+            "description": "陌生段乘数"
+          },
+          "renshi": {
+            "type": "float",
+            "default": 1,
+            "description": "认识段乘数"
+          },
+          "youhao": {
+            "type": "float",
+            "default": 0.75,
+            "description": "友好段乘数"
+          },
+          "qinmi": {
+            "type": "float",
+            "default": 0.55,
+            "description": "亲密段乘数"
+          },
+          "zhiyou": {
+            "type": "float",
+            "default": 0.35,
+            "description": "挚友段乘数"
+          },
+          "zhiai": {
+            "type": "float",
+            "default": 0.2,
+            "description": "挚爱段乘数"
+          }
         }
       }
     }
@@ -148,23 +542,96 @@
     "type": "object",
     "description": "成员印象与标签：AI 根据评审流水定期给每人生成一句印象侧写+短标签，注入对话（让小千记得每个人是谁）并展示在面板",
     "items": {
-      "interval": { "type": "int", "default": 8, "description": "每累计 N 次有效评估自动刷新一次该成员印象（后台静默，失败不影响对话）。手动刷新：/印象刷新 QQ号 或面板按钮" }
+      "interval": {
+        "type": "int",
+        "default": 8,
+        "description": "每累计 N 次有效评估自动刷新一次该成员印象（后台静默，失败不影响对话）。手动刷新：/印象刷新 QQ号 或面板按钮"
+      }
     }
   },
   "relationship": {
     "type": "object",
     "description": "关系类型：给每人一个关系标签（与好感数值正交：数值管冷热，类型管角色）",
     "items": {
-      "enabled": { "type": "bool", "default": false, "description": "总开关" },
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "description": "总开关"
+      },
       "types": {
         "type": "object",
         "description": "预设关系类型（key→展示名/语气指引），可改 label/guidance；指令用 key 设置",
         "items": {
-          "friend": { "type": "object", "description": "朋友", "items": { "label": { "type": "string", "default": "朋友" }, "guidance": { "type": "text", "default": "把 TA 当朋友：平等、随和，可以开玩笑" } } },
-          "soulmate": { "type": "object", "description": "挚友", "items": { "label": { "type": "string", "default": "挚友" }, "guidance": { "type": "text", "default": "把 TA 当无话不谈的知己：彼此袒护、情绪上依赖 TA" } } },
-          "lover": { "type": "object", "description": "恋人", "items": { "label": { "type": "string", "default": "恋人" }, "guidance": { "type": "text", "default": "把 TA 当恋人：会吃醋、撒娇、依赖，把 TA 放在心上" } } },
-          "family": { "type": "object", "description": "家人", "items": { "label": { "type": "string", "default": "家人" }, "guidance": { "type": "text", "default": "把 TA 当家人：自然亲近、不用客套" } } },
-          "disliked": { "type": "object", "description": "讨厌的人", "items": { "label": { "type": "string", "default": "讨厌的人" }, "guidance": { "type": "text", "default": "反感 TA，保持距离、态度冷淡" } } }
+          "friend": {
+            "type": "object",
+            "description": "朋友",
+            "items": {
+              "label": {
+                "type": "string",
+                "default": "朋友"
+              },
+              "guidance": {
+                "type": "text",
+                "default": "把 TA 当朋友：平等、随和，可以开玩笑"
+              }
+            }
+          },
+          "soulmate": {
+            "type": "object",
+            "description": "挚友",
+            "items": {
+              "label": {
+                "type": "string",
+                "default": "挚友"
+              },
+              "guidance": {
+                "type": "text",
+                "default": "把 TA 当无话不谈的知己：彼此袒护、情绪上依赖 TA"
+              }
+            }
+          },
+          "lover": {
+            "type": "object",
+            "description": "恋人",
+            "items": {
+              "label": {
+                "type": "string",
+                "default": "恋人"
+              },
+              "guidance": {
+                "type": "text",
+                "default": "把 TA 当恋人：会吃醋、撒娇、依赖，把 TA 放在心上"
+              }
+            }
+          },
+          "family": {
+            "type": "object",
+            "description": "家人",
+            "items": {
+              "label": {
+                "type": "string",
+                "default": "家人"
+              },
+              "guidance": {
+                "type": "text",
+                "default": "把 TA 当家人：自然亲近、不用客套"
+              }
+            }
+          },
+          "disliked": {
+            "type": "object",
+            "description": "讨厌的人",
+            "items": {
+              "label": {
+                "type": "string",
+                "default": "讨厌的人"
+              },
+              "guidance": {
+                "type": "text",
+                "default": "反感 TA，保持距离、态度冷淡"
+              }
+            }
+          }
         }
       }
     }

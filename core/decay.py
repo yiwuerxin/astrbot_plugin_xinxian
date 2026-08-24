@@ -32,12 +32,17 @@ def effective_favor(
     *,
     half_life: float,
     baseline: float,
+    floor: float | None = None,
 ) -> float:
     """指数遗忘：存量距离按 0.5^(闲置天数/h) 衰减，向 baseline 收敛不越界。
 
     - updated_at <= 0（从未互动）：不衰减。
     - half_life 缺失/非法或低于 HALF_LIFE_MIN 时按 HALF_LIFE_MIN 计
       （保险丝：配置被改坏也不会快于每天 ~13% 的比例损失）。
+    - floor（等级衰减地板，星露谷式）：衰减后的有效值不低于 floor 时取
+      floor——挚爱最多衰到"亲密"下沿，久别重逢不掉出熟悉区间。仅当
+      floor 高于 baseline 时生效（地板必须落在衰减目标之上才有意义）；
+      stored 本身低于 floor 时不抬高（地板只托底不上涨）。
     - 返回值收敛到一位小数。
     """
     h = max(HALF_LIFE_MIN, float(half_life)) if half_life else HALF_LIFE_MIN
@@ -51,6 +56,9 @@ def effective_favor(
         eff = max(baseline, eff)
     elif stored < baseline:
         eff = min(baseline, eff)
+    # 等级地板：托底不上涨（stored 已在地板下则维持衰减结果）
+    if floor is not None and stored > floor > baseline:
+        eff = max(float(floor), eff)
     return round1(eff)
 
 
