@@ -54,6 +54,10 @@ def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
     return has_at_bot, is_reply_bot
 
 
+# 后台评审任务持引用（裸 create_task 只被事件循环弱引用，可能被 GC 中途回收）
+_bg_tasks: set[asyncio.Task] = set()
+
+
 async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
     """群消息入口：评估引擎（唯一自动引擎，内部自行判断开关/冷却/降级）。
 
@@ -98,7 +102,9 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         except Exception:
             logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）")
 
-    asyncio.create_task(_bg())
+    task = asyncio.create_task(_bg())
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 async def on_llm_request(
