@@ -450,6 +450,21 @@
     "type": "object",
     "description": "防通胀经济学（仅评审路径）：真实关系的增长规律——寒暄不推进关系、高阶段增长更难、坏事比好事重",
     "items": {
+      "preset": {
+        "type": "string",
+        "default": "default",
+        "description": "手感预设：default=标准防通胀；galgame=易升难降（娱乐群，努力有回报）；realistic=难升易降（拟人向，好感金贵、得罪一次疼很久）。显式设置的具体参数优先于预设",
+        "options": [
+          "default",
+          "galgame",
+          "realistic"
+        ],
+        "optional": [
+          "default",
+          "galgame",
+          "realistic"
+        ]
+      },
       "enabled": {
         "type": "bool",
         "default": true,
