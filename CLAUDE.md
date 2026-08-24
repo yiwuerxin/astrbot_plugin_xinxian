@@ -155,6 +155,7 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 | 1.26.3 | #46 | `favor_log` message/reason truncated to 200 chars at write; production review standard added to this file |
 | 1.26.4 | #47 | WebUI member-table row-border misalignment fix |
 | 1.26.5 | #49 | daily-boundary timezone defaults to 东八区 (`Asia/Shanghai`) — no config needed |
+| 1.26.6 | #51 | background judge tasks hold strong refs (`_bg_tasks` set in `api/listeners.py`) — bare `create_task` results are weakly referenced by the loop and could be GC'd mid-flight |
 | — | #37 | docs sync: README 目录/测试数对齐，CLAUDE 版本历史与待办 |
 
 Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
