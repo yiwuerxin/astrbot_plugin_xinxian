@@ -1049,6 +1049,19 @@ class TestImpression:
         p2 = self.build_prompt("M", "", [], "小千")
         assert "旧印象" not in p2 and "暂无记录" in p2
 
+    def test_build_prompt_bitemporal_guidance(self):
+        # 双时态引导：提示"以前觉得…，最近…"的演进式写法（v1.28）
+        p = self.build_prompt("M", "爱抬杠", ["+0.8 深聊 —— 真诚"], "小千")
+        assert "以前觉得" in p and "最近" in p
+        p2 = self.build_prompt("M", "", [], "小千")
+        assert "以前觉得" in p2  # 首次印象也给出演进写法说明
+
+    def test_parse_bitemporal_impression_truncated(self):
+        # 双段式印象可能更长：解析层 80 字截断仍然生效
+        long_bi = "以前觉得" + "吵" * 60 + "，最近" + "静" * 60
+        r = self.parse_summary(f"印象:{long_bi}\n标签:毒舌")
+        assert len(r[0]) == 80
+
 
 # ---------------- user_version 白名单写入 ----------------
 
