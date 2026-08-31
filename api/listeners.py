@@ -122,7 +122,9 @@ async def on_llm_request(
     except Exception:
         nickname = None
     logs = await deps.favor.query_logs(group_id, user_id, limit=15)
-    events = deps.favor.recent_events(
+    # recent_events 是 async def——漏 await 会返回协程，注入链路在
+    # _format_events 的 for 循环上炸 TypeError: 'coroutine' object is not iterable
+    events = await deps.favor.recent_events(
         group_id, user_id, deps.memory_count, deps.memory_days,
         logs=logs,
         sig_threshold=deps.memory_sig_threshold,
