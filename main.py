@@ -23,6 +23,7 @@ from .api import commands as cmd
 from .api import llm_tools as tools
 from .api.facade import XinxianFacade
 from .api.listeners import Deps, on_group_message, on_llm_request
+from .core.config_migrations import migrate_saved_defaults
 from .core.identity import parse_master_ids
 from .core.judge_parse import DEFAULT_ATTITUDE_DELTAS
 from .core.level_economy import EconomyConfig
@@ -49,7 +50,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.29.1",
+    "1.29.2",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -58,6 +59,16 @@ class XinxianPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig) -> None:
         super().__init__(context)
         self.config = config
+
+        # 存量配置默认值迁移（仅当存值与已知旧默认逐字一致，见 core/config_migrations.py）
+        migrated = migrate_saved_defaults(config)
+        if migrated:
+            try:
+                config.save_config()
+                logger.info(f"[心弦] 配置默认值迁移：{', '.join(migrated)}")
+            except Exception:
+                # 本次运行已用上内存中的新值；文件未写入则下次加载重试
+                logger.warning("[心弦] 配置默认值迁移后保存失败，将在下次加载时重试")
 
         try:
             data_dir = StarTools.get_data_dir()
