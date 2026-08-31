@@ -15,6 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from astrbot_plugin_xinxian.core.config_migrations import migrate_saved_defaults  # noqa: E402
 from astrbot_plugin_xinxian.core.decay import effective_favor  # noqa: E402
 from astrbot_plugin_xinxian.core.decimal import fmt, round1  # noqa: E402
 from astrbot_plugin_xinxian.core.identity import is_master, parse_master_ids  # noqa: E402
@@ -1765,3 +1766,55 @@ class TestMilestoneInject:
             milestone=("挚友", time.time()),
         )
         assert "阿狸" in block  # 渲染成功即可（里程碑自然消隐）
+
+
+# ---------------- 配置默认值迁移 ----------------
+
+class TestConfigMigration:
+    def _v124_cfg(self):
+        return {
+            "levels": {
+                "mosheng": {"master_guidance": "冷战/别扭期，爱答不理、说话带刺，但心里在等主人先低头"},
+                "renshi": {"master_guidance": "小别扭还没消，嘴上不饶人，可心里在意主人、盼着主人来哄"},
+                "youhao": {"master_guidance": "和好了，会撒娇耍赖、跟主人要专属待遇"},
+            }
+        }
+
+    def test_old_defaults_migrated(self):
+        cfg = self._v124_cfg()
+        changed = migrate_saved_defaults(cfg)
+        assert sorted(changed) == [
+            "levels.mosheng.master_guidance",
+            "levels.renshi.master_guidance",
+            "levels.youhao.master_guidance",
+        ]
+        assert "不生气也不冷战" in cfg["levels"]["mosheng"]["master_guidance"]
+        assert "感情在慢慢升温" in cfg["levels"]["renshi"]["master_guidance"]
+        assert "感情稳定" in cfg["levels"]["youhao"]["master_guidance"]
+        # 迁移幂等：再跑一遍已无旧默认可迁
+        assert migrate_saved_defaults(cfg) == []
+
+    def test_custom_value_never_touched(self):
+        cfg = {"levels": {"mosheng": {"master_guidance": "主人的自定义指引"}}}
+        assert migrate_saved_defaults(cfg) == []
+        assert cfg["levels"]["mosheng"]["master_guidance"] == "主人的自定义指引"
+
+    def test_missing_or_malformed_levels_noop(self):
+        assert migrate_saved_defaults({}) == []
+        assert migrate_saved_defaults({"levels": "不是字典"}) == []
+        assert migrate_saved_defaults({"levels": {"mosheng": None}}) == []
+
+    def test_targets_match_current_schema_defaults(self):
+        # 防漂移：迁移写入的新值必须与当前 _conf_schema.json 默认值逐字一致
+        import json
+
+        schema = json.loads(
+            (Path(__file__).resolve().parent.parent / "_conf_schema.json").read_text(encoding="utf-8")
+        )
+        cfg = self._v124_cfg()
+        migrate_saved_defaults(cfg)
+        for key in ("mosheng", "renshi", "youhao"):
+            assert (
+                cfg["levels"][key]["master_guidance"]
+                == schema["levels"]["items"][key]["items"]["master_guidance"]["default"]
+            )
