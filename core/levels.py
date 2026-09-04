@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from .models import LevelDef
+from .naming import LEVEL_KEY_BY_NAME
 
 DEFAULT_LEVELS: list[LevelDef] = [
     LevelDef("厌恶", -100, -1, "反感与回避，冷淡敷衍，抗拒亲近，语气生硬拒人于千里之外"),
@@ -53,15 +54,6 @@ DEFAULT_INTERACTION: dict[str, str] = {
     "挚友": "有话直说，该泼冷水就泼，事后仍然向着 TA",
     "挚爱": "毫无保留地说真实想法，任性和提醒都不藏着",
 }
-_LEVEL_KEYS = {
-    "厌恶": "yanwu",
-    "陌生": "mosheng",
-    "认识": "renshi",
-    "友好": "youhao",
-    "亲密": "qinmi",
-    "挚友": "zhiyou",
-    "挚爱": "zhiai",
-}
 
 
 class LevelTable:
@@ -82,7 +74,7 @@ class LevelTable:
         raw = (cfg or {}).get("levels") or {}
         levels: list[LevelDef] = []
         for default in DEFAULT_LEVELS:
-            item = raw.get(_LEVEL_KEYS[default.name]) or {}
+            item = raw.get(LEVEL_KEY_BY_NAME[default.name]) or {}
             levels.append(
                 LevelDef(
                     name=default.name,

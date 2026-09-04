@@ -107,54 +107,51 @@ class SQLiteBackend(StorageBackend):
             conn.commit()
         return FavorRecord(group_id, user_id, new_value, now, half_life=new_h), real_delta
 
-    async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
+    def _upsert(self, group_id: str, user_id: str, cols: dict[str, object], *, touch: bool = False) -> None:
+        """锁内 upsert favor 表的指定列（须在 self._lock 内调用）。
+
+        无记录时 INSERT（一律带 updated_at=now，新行以"现在"起算衰减锚点）；
+        行存在时只 UPDATE 给定列。touch=True 时冲突分支一并刷新
+        updated_at（好感数值变动必须重置衰减锚点；昵称/关系/印象不算
+        好感变动，不重置）。列名来自本类固定调用点，无用户输入。
+        """
         now = time.time()
+        col_sql = ", ".join(cols)
+        ph = ", ".join("?" for _ in cols)
+        update_sql = ", ".join(f"{c}=excluded.{c}" for c in cols)
+        if touch:
+            update_sql += ", updated_at=excluded.updated_at"
+        self._c().execute(
+            f"INSERT INTO favor(group_id, user_id, updated_at, {col_sql}) "
+            f"VALUES(?,?,?,{ph}) "
+            f"ON CONFLICT(group_id, user_id) DO UPDATE SET {update_sql}",
+            (group_id, user_id, now, *cols.values()),
+        )
+        self._c().commit()
+
+    async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
         value = round1(value)
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "favor=excluded.favor, updated_at=excluded.updated_at",
-                (group_id, user_id, value, now),
-            )
-            self._c().commit()
-        return FavorRecord(group_id, user_id, value, now)
+            self._upsert(group_id, user_id, {"favor": value}, touch=True)
+        return FavorRecord(group_id, user_id, value, time.time())
 
     async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
-        now = time.time()
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, updated_at, relationship) VALUES(?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "relationship=excluded.relationship",
-                (group_id, user_id, now, relationship or ""),
-            )
-            self._c().commit()
+            self._upsert(group_id, user_id, {"relationship": relationship or ""})
 
     async def set_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
-        now = time.time()
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, updated_at, nickname) VALUES(?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET nickname=excluded.nickname",
-                (group_id, user_id, now, nickname or ""),
-            )
-            self._c().commit()
+            self._upsert(group_id, user_id, {"nickname": nickname or ""})
 
     async def set_impression(
         self, group_id: str, user_id: str, impression: str, tags: list[str]
     ) -> None:
-        now = time.time()
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, updated_at, impression, tags, impression_at) "
-                "VALUES(?,?,?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "impression=excluded.impression, tags=excluded.tags, impression_at=excluded.impression_at",
-                (group_id, user_id, now,
-                 (impression or "").strip(), json.dumps(list(tags or []), ensure_ascii=False), now),
-            )
-            self._c().commit()
+            self._upsert(group_id, user_id, {
+                "impression": (impression or "").strip(),
+                "tags": json.dumps(list(tags or []), ensure_ascii=False),
+                "impression_at": time.time(),
+            })
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         with self._lock:

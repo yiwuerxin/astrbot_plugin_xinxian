@@ -17,6 +17,7 @@ from astrbot.api.provider import ProviderRequest
 
 from ..core.decimal import fmt
 from ..services.favor_service import FavorService
+from ..services.impression_service import ImpressionService
 from ..services.inject_service import InjectService
 from ..services.judge_service import JudgeService
 
@@ -33,6 +34,7 @@ class Deps:
     favor: FavorService
     judge: JudgeService
     inject: InjectService
+    impressions: ImpressionService | None = None
     inject_enabled: bool = True
     memory_count: int = 3
     memory_days: int = 7
@@ -92,13 +94,17 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                     group_id, user_id, result.delta,
                     reason=result.reason or f"judge:{result.attitude}",
                     message=text,
-                    umo=getattr(event, "unified_msg_origin", "") or "",
                 )
                 if change.delta:
                     logger.info(
                         f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
                         f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
                     )
+                    if deps.impressions is not None:
+                        await deps.impressions.maybe_refresh(
+                            group_id, user_id,
+                            umo=getattr(event, "unified_msg_origin", "") or "",
+                        )
         except Exception:
             logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）")
 

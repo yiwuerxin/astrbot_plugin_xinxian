@@ -869,12 +869,29 @@ class TestImpressionStorage:
         # set_tags 走 set_impression（同列存储），手动改标签不丢印象
         b = self._backend(tmp_path)
         asyncio.run(b.set_impression("g", "u", "旧印象", ["a"]))
-        from astrbot_plugin_xinxian.services.favor_service import FavorService
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
 
-        svc = FavorService(b, LevelTable.from_config(None))
+        svc = ImpressionService(b)
         asyncio.run(svc.set_tags("g", "u", ["手改"]))
         rec = asyncio.run(b.get("g", "u"))
         assert rec.impression == "旧印象" and rec.parsed_tags() == ["手改"]
+
+    def test_impression_service_refresh_without_summarizer(self, tmp_path):
+        # 未绑定 summarizer（评审关闭/未装配）时立即刷新给出明确失败，不抛异常
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
+        svc = ImpressionService(self._backend(tmp_path))
+        ok, msg = asyncio.run(svc.refresh_now("g", "u"))
+        assert ok is False and "未启用" in msg
+
+    def test_impression_service_maybe_refresh_silent(self, tmp_path):
+        # maybe_refresh 在无流水/无 summarizer 时静默无动作（增值功能不抛错）
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
+        b = self._backend(tmp_path)
+        svc = ImpressionService(b)
+        asyncio.run(svc.maybe_refresh("g", "u"))  # 不应抛异常
+        assert asyncio.run(b.get("g", "u")) is None
 
     def test_standalone_include_impression(self, tmp_path):
         b = self._backend(tmp_path)
@@ -1045,16 +1062,16 @@ class TestImpression:
         assert self.parse_summary("印象:  \n标签:a") is None
 
     def test_build_prompt_content(self):
-        p = self.build_prompt("M", "旧印象", ["+0.8 喜欢你 —— 直白好感"], "小千")
-        assert "M" in p and "旧印象" in p and "+0.8" in p and "小千" in p
-        p2 = self.build_prompt("M", "", [], "小千")
+        p = self.build_prompt("阿狸", "旧印象", ["+0.8 喜欢你 —— 直白好感"], "小千")
+        assert "阿狸" in p and "旧印象" in p and "+0.8" in p and "小千" in p
+        p2 = self.build_prompt("阿狸", "", [], "小千")
         assert "旧印象" not in p2 and "暂无记录" in p2
 
     def test_build_prompt_bitemporal_guidance(self):
         # 双时态引导：提示"以前觉得…，最近…"的演进式写法（v1.28）
-        p = self.build_prompt("M", "爱抬杠", ["+0.8 深聊 —— 真诚"], "小千")
+        p = self.build_prompt("阿狸", "爱抬杠", ["+0.8 深聊 —— 真诚"], "小千")
         assert "以前觉得" in p and "最近" in p
-        p2 = self.build_prompt("M", "", [], "小千")
+        p2 = self.build_prompt("阿狸", "", [], "小千")
         assert "以前觉得" in p2  # 首次印象也给出演进写法说明
 
     def test_parse_bitemporal_impression_truncated(self):
@@ -1298,8 +1315,10 @@ class TestApplyJudgeEconomy:
         self.eco = EconomyConfig()
 
     def _svc(self, eco=True):
+        # 显式放开每日限幅：本组测试聚焦经济学层，不让限幅层抢戏
         return FavorService(
             self.storage, LevelTable.from_config(None),
+            daily_cap_up=200, daily_cap_down=200,
             economy=self.eco if eco else None,
         )
 

@@ -19,9 +19,10 @@ except ImportError:  # pragma: no cover
 class PageApi:
     """心弦 dashboard 后端 API。"""
 
-    def __init__(self, favor, storage) -> None:
+    def __init__(self, favor, storage, impressions=None) -> None:
         self._favor = favor
         self._storage = storage
+        self._impressions = impressions
 
     def register(self, context) -> None:
         """注册原生 Web API；框架不支持（无 register_web_api 或无 Flask）时静默跳过。"""
@@ -104,8 +105,10 @@ class PageApi:
             user_id = (request.args.get("user_id") or "").strip()
             if not group_id or not user_id:
                 return jsonify({"success": False, "error": "缺少 group_id/user_id"})
-            msg = await self._favor.refresh_impression_now(group_id, user_id)
-            return jsonify({"success": not msg.startswith(("刷新失败", "模型")), "message": msg})
+            if self._impressions is None:
+                return jsonify({"success": False, "error": "印象功能未启用"})
+            ok, msg = await self._impressions.refresh_now(group_id, user_id)
+            return jsonify({"success": ok, "message": msg})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
 

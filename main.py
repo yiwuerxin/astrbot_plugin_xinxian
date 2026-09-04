@@ -28,8 +28,10 @@ from .core.identity import parse_master_ids
 from .core.judge_parse import DEFAULT_ATTITUDE_DELTAS
 from .core.level_economy import EconomyConfig
 from .core.levels import LevelTable
+from .core.naming import TIER_NAME_BY_KEY
 from .core.relationship import RelationshipTable
 from .services.favor_service import FavorService
+from .services.impression_service import ImpressionService
 from .services.inject_service import InjectService
 from .services.judge_service import JudgeService
 from .storage.sqlite_backend import SQLiteBackend
@@ -50,7 +52,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.29.2",
+    "1.29.3",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -99,8 +101,8 @@ class XinxianPlugin(Star):
             max_favor=max_favor,
             min_favor=min_favor,
             default_favor=float(config.get("default_favor", 0)),
-            daily_cap_up=float(config.get("daily_cap_up", 15)),
-            daily_cap_down=float(config.get("daily_cap_down", 15)),
+            daily_cap_up=float(config.get("daily_cap_up", 4)),
+            daily_cap_down=float(config.get("daily_cap_down", 8)),
             master_ids=master_ids,
             decay_enabled=bool(decay_cfg.get("enabled", False)),
             half_life_base=float(decay_cfg.get("half_life_base", 10)),
@@ -110,19 +112,17 @@ class XinxianPlugin(Star):
             decay_floor_enabled=bool(decay_cfg.get("floor_enabled", True)),
             relationships=relationships,
             economy=eco,
-            impression_interval=int(impression_cfg.get("interval", 8)),
             tz_name=str(config.get("timezone", "") or ""),
         )
 
         judge_cfg = config.get("judge") or {}
         inject_cfg = config.get("inject") or {}
 
-        # 五档分值映射：配置键（拼音）→ 档位名（中文）
+        # 五档分值映射：配置键（拼音）→ 档位名（中文），映射表见 core/naming.py
         ad_raw = judge_cfg.get("attitude_deltas") or {}
-        _AD_KEYS = {"diyi": "敌意", "lengdan": "冷淡", "zhongxing": "中性", "youhao": "友好", "reqing": "热情"}
         attitude_deltas = {
             tier: float(ad_raw.get(key, DEFAULT_ATTITUDE_DELTAS[tier]))
-            for key, tier in _AD_KEYS.items()
+            for key, tier in TIER_NAME_BY_KEY.items()
         }
 
         template = (inject_cfg.get("template") or "").strip() or _read_resource(
@@ -164,10 +164,19 @@ class XinxianPlugin(Star):
             attitude_deltas=attitude_deltas,
             roster=(judge_cfg.get("roster") or "").strip(),
         )
+
+        # 印象服务独立于好感度门面（借 JudgeService 的 provider/人格解析做汇总）
+        self._impressions = ImpressionService(
+            self._storage,
+            interval=int(impression_cfg.get("interval", 8)),
+        )
+        self._impressions.bind_summarizer(self._judge)
+
         self._deps = Deps(
             favor=self._favor,
             judge=self._judge,
             inject=self._inject,
+            impressions=self._impressions,
             inject_enabled=bool(inject_cfg.get("enabled", True)),
             memory_count=int(inject_cfg.get("memory_count", 3)),
             memory_days=int(inject_cfg.get("memory_days", 7)),
@@ -182,15 +191,12 @@ class XinxianPlugin(Star):
         self._render_font = (render_cfg.get("font_path") or "").strip()
         self._render_rows = int(render_cfg.get("rows_per_col", 12))
 
-        # 印象汇总借用 JudgeService 的 provider 解析（模型/人格与评审同源）
-        self._favor.bind_summarizer(self._judge)
-
         # 跨插件 API：context.get_registered_star("astrbot_plugin_xinxian").star_cls.api
         self.api = XinxianFacade(self._favor)
 
         # 原生 dashboard 页面 API（框架支持时注册，内嵌于主面板，无独立端口/鉴权）
         from .api.page_api import PageApi
-        self._page_api = PageApi(self._favor, self._storage)
+        self._page_api = PageApi(self._favor, self._storage, self._impressions)
         self._page_api.register(context)
 
     async def initialize(self) -> None:
@@ -265,13 +271,15 @@ class XinxianPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def _cmd_set_tags(self, event: AstrMessageEvent, target: str = "", tags: str = ""):
         """设置成员标签（管理员）。用法：/印象设置 QQ号 标签1,标签2"""
-        yield event.plain_result(await cmd.handle_set_tags(self._favor, event, target, tags))
+        yield event.plain_result(
+            await cmd.handle_set_tags(self._impressions, event, target, tags)
+        )
 
     @filter.command("印象刷新")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def _cmd_refresh_imp(self, event: AstrMessageEvent, target: str = ""):
         """立即刷新成员印象（管理员）。用法：/印象刷新 QQ号"""
-        yield event.plain_result(await cmd.handle_refresh_impression(self._favor, event, target))
+        yield event.plain_result(await cmd.handle_refresh_impression(self._impressions, event, target))
 
     # ---------------- LLM 工具 ----------------
 

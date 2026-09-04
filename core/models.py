@@ -73,7 +73,7 @@ class FavorChange:
     Attributes:
         delta: 实际生效的变化量（经过冷却与每日上限截断后）。
         reason: 变化原因（事件名或 judge:态度）。
-        source: 来源标识：rule / judge / admin / tool / api。
+        source: 来源标识：judge / admin / api / undo 等。
         clamped: 是否被冷却或每日上限截断过。
         favor_after: 变化后的好感度。
     """

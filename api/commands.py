@@ -59,7 +59,7 @@ async def handle_set_relationship(
 
 
 async def handle_set_tags(
-    svc: FavorService, event: AstrMessageEvent, target: str, tags: str
+    impressions, event: AstrMessageEvent, target: str, tags: str
 ) -> str:
     """/印象设置 QQ号 标签1,标签2（管理员；标签留空=清除手动标签）。印象本体由 AI 维护。"""
     target = (target or "").strip()
@@ -67,24 +67,24 @@ async def handle_set_tags(
         return "用法：/印象设置 QQ号 标签1,标签2（最多 3 个，逗号分隔；留空清除）"
     parts = [p for p in str(tags or "").replace("，", ",").split(",") if p.strip()]
     if not parts:
-        rec = await svc.get(event.get_group_id(), target)
-        await svc.set_tags(event.get_group_id(), target, [])
+        await impressions.set_tags(event.get_group_id(), target, [])
         return f"已清除 QQ {target} 的标签。"
-    await svc.set_tags(event.get_group_id(), target, parts[:3])
+    await impressions.set_tags(event.get_group_id(), target, parts[:3])
     return f"已将 QQ {target} 的标签设为：{'、'.join(p.strip()[:6] for p in parts[:3])}。"
 
 
 async def handle_refresh_impression(
-    svc: FavorService, event: AstrMessageEvent, target: str
+    impressions, event: AstrMessageEvent, target: str
 ) -> str:
     """/印象刷新 QQ号（管理员）：立即根据最近评估记录刷新该成员印象。"""
     target = (target or "").strip()
     if not target.isdigit():
         return "用法：/印象刷新 QQ号"
-    return await svc.refresh_impression_now(
+    _ok, msg = await impressions.refresh_now(
         event.get_group_id(), target,
         umo=getattr(event, "unified_msg_origin", "") or "",
     )
+    return msg
 
 
 async def build_rank_image(
