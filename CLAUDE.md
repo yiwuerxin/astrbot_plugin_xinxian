@@ -161,6 +161,7 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 | 1.29.0 | #55 | economy feel presets `default/galgame/realistic`（preset 垫底、显式参数覆盖） |
 | 1.29.1 | #56 | fix: restore the missing `await` on `recent_events` (injection chain silently dead) |
 | 1.29.2 | #57 | fix: migrate stale `master_guidance` defaults on saved configs (literal-match old defaults only) |
+| 1.29.3 | #58 | refactor: `ImpressionService` split out of FavorService; pinyin maps → `core/naming.py`, tier anchors single-sourced; SQLite upserts merged (`touch` preserves decay-anchor semantics); fixes: cap fallback defaults aligned to schema (4/8), rank-image temp PNG cleanup, nickname cache cap, structured impression-refresh result; decay-floor docstring corrected (two levels) |
 | — | #37 | docs sync: README 目录/测试数对齐，CLAUDE 版本历史与待办 |
 
 Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
