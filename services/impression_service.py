@@ -24,12 +24,23 @@ class ImpressionService:
         *,
         interval: int = 8,
         summarizer=None,
+        timeout_sec: float = 60.0,
     ) -> None:
         self._storage = storage
         self._interval = max(1, int(interval))
         self._summarizer = summarizer  # main.py 注入（JudgeService，借其 provider 解析）
+        # X3：汇总调用超时（与评审同源配置）——挂起的 provider 会把后台
+        # 任务永久滞留在注册表里
+        self._timeout_sec = max(0.0, float(timeout_sec))
         # 后台印象刷新任务持引用（裸 create_task 可能被 GC 中途回收）
         self._bg_tasks: set[asyncio.Task] = set()
+
+    async def _call_llm(self, provider, prompt: str):
+        """带超时的 text_chat（X3）；超时抛 TimeoutError 由调用方降级。"""
+        call = provider.text_chat(prompt=prompt)
+        if self._timeout_sec > 0:
+            call = asyncio.wait_for(call, timeout=self._timeout_sec)
+        return await call
 
     def bind_summarizer(self, judge) -> None:
         """注入 JudgeService（借其 provider 解析与人格名，用于印象汇总调用）。"""
@@ -85,7 +96,7 @@ class ImpressionService:
             provider = await self._summarizer.resolve_summary_provider()
             if provider is None:
                 return False, "模型不可用，稍后再试"
-            resp = await provider.text_chat(prompt=prompt)
+            resp = await self._call_llm(provider, prompt)
             content = (getattr(resp, "completion_text", "") or "").strip()
             parsed = parse_summary(content)
             if parsed is None:

@@ -54,6 +54,11 @@
         "default": 120,
         "description": "同一成员评估冷却秒数"
       },
+      "timeout_sec": {
+        "type": "int",
+        "default": 60,
+        "description": "评审/印象汇总调用的超时秒数（provider 挂起则按失败降级，冷却照常占用；0=不设超时）"
+      },
       "max_abs_delta": {
         "type": "float",
         "default": 3,

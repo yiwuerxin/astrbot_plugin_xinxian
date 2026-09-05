@@ -927,6 +927,32 @@ class TestImpressionStorage:
         asyncio.run(svc.maybe_refresh("g", "u"))  # 不应抛异常
         assert asyncio.run(b.get("g", "u")) is None
 
+    def test_impression_service_llm_timeout(self, tmp_path):
+        # X3：provider 挂起时按失败降级（超时而不是永久滞留），结果为 (False, …)
+        import asyncio as _aio
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
+        b = self._backend(tmp_path)
+        asyncio.run(b.set_impression("g", "u", "旧", ["a"]))
+        for i in range(3):  # 造出评审流水，走到 LLM 调用分支
+            asyncio.run(b.add_log("g", "u", 0.5, 0, 0.5, "r", "judge", 1000 + i))
+
+        class _HangProvider:
+            async def text_chat(self, prompt=None, **kw):
+                await _aio.sleep(30)
+
+        class _FakeJudge:
+            async def resolve_display_name(self, umo=""):
+                return "小千"
+            async def resolve_summary_provider(self):
+                return _HangProvider()
+
+        svc = ImpressionService(b, summarizer=_FakeJudge(), timeout_sec=0.05)
+        ok, msg = asyncio.run(svc.refresh_now("g", "u"))
+        assert ok is False and "刷新失败" in msg
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.impression == "旧"  # 超时不清掉原印象
+
     def test_standalone_include_impression(self, tmp_path):
         b = self._backend(tmp_path)
         asyncio.run(b.set_impression("g", "u", "测试印象", ["x"]))

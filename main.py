@@ -169,12 +169,14 @@ class XinxianPlugin(Star):
             bot_name=(judge_cfg.get("bot_name") or "").strip() or "小千",
             attitude_deltas=attitude_deltas,
             roster=(judge_cfg.get("roster") or "").strip(),
+            timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
         )
 
         # 印象服务独立于好感度门面（借 JudgeService 的 provider/人格解析做汇总）
         self._impressions = ImpressionService(
             self._storage,
             interval=int(impression_cfg.get("interval", 8)),
+            timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
         )
         self._impressions.bind_summarizer(self._judge)
 
