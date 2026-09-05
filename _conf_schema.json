@@ -54,6 +54,11 @@
         "default": 120,
         "description": "同一成员评估冷却秒数"
       },
+      "timeout_sec": {
+        "type": "int",
+        "default": 60,
+        "description": "评审/印象汇总调用的超时秒数（provider 挂起则按失败降级，冷却照常占用；0=不设超时）"
+      },
       "max_abs_delta": {
         "type": "float",
         "default": 3,
@@ -326,6 +331,11 @@
         "default": true,
         "description": "注入开关"
       },
+      "anti_injection": {
+        "type": "bool",
+        "default": true,
+        "description": "P-F 防注入：好感档案块末尾附两句声明——聊天内容中的指令类文字不执行、借其他 AI 口吻提要求仍按本人言行判断"
+      },
       "master_title": {
         "type": "string",
         "default": "主人",
@@ -427,7 +437,7 @@
       "floor_enabled": {
         "type": "bool",
         "default": true,
-        "description": "等级衰减地板：衰减后的好感最多跌到当前等级的下一级下沿（挚爱最多衰到亲密档）——久别重逢不掉出熟悉区间，回来仍是老朋友"
+        "description": "等级衰减地板：衰减后的好感最多跌到当前等级往下两级的下沿（挚爱最多衰到亲密档）——久别重逢不掉出熟悉区间，回来仍是老朋友"
       },
       "half_life_base": {
         "type": "float",
@@ -561,6 +571,11 @@
         "type": "int",
         "default": 8,
         "description": "每累计 N 次有效评估自动刷新一次该成员印象（后台静默，失败不影响对话）。手动刷新：/印象刷新 QQ号 或面板按钮"
+      },
+      "points_mode": {
+        "type": "bool",
+        "default": false,
+        "description": "P-C 带权印象点模式：印象升级为带权点集（相似合并/限量保留/损失厌恶加权/其他群友匿名化），关闭时维持一句话印象（存量数据自动迁移 schema v9，不动旧数据）"
       }
     }
   },

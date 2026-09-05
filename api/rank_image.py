@@ -11,8 +11,14 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+import time
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+# 临时图带专属前缀，渲染前顺手清理 1 小时前的旧图（图片发出后文件即无用，
+# 否则常驻进程会往 /tmp 无限累积）
+_TMP_PREFIX = "xinxian_rank_"
 
 # 自动探测的 CJK 字体候选（容器内常见位置 + 其他插件自带）
 _CJK_CANDIDATES = [
@@ -127,6 +133,20 @@ def _gradient_string(img: Image.Image, x0: int, y: int, width: int, height: int 
     img.paste(grad, (x0, y), mask)
 
 
+def _cleanup_stale_tmp() -> None:
+    """best-effort 删除 1 小时前生成的旧排行图；任何失败忽略。"""
+    try:
+        cutoff = time.time() - 3600
+        for p in Path(tempfile.gettempdir()).glob(f"{_TMP_PREFIX}*.png"):
+            try:
+                if p.stat().st_mtime < cutoff:
+                    p.unlink()
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
 def render_ranking(
     rows: list[dict],
     querier_id,
@@ -140,6 +160,7 @@ def render_ranking(
     rows: list[dict]（含 user_id/favor，**已按 favor 降序**；有 level 则按色温轴着色）。
     querier_id: 当前查询人 QQ（该格高亮）。
     """
+    _cleanup_stale_tmp()
     n = len(rows)
     cols = max(1, math.ceil(n / rows_per_col)) if n else 1
     rows_in_col = math.ceil(n / cols) if n else 1
@@ -219,6 +240,6 @@ def render_ranking(
     fy = img_h - pad - footer_h / 2 + 4
     _text_vh(draw, 0, fy, "心弦 · 好感度", f_small, _DIM, right_x=img_w - pad)
 
-    path = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+    path = tempfile.NamedTemporaryFile(prefix=_TMP_PREFIX, suffix=".png", delete=False).name
     img.save(path, "PNG")
     return path

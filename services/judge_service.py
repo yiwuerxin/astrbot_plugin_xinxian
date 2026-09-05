@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import time
@@ -53,6 +54,7 @@ class JudgeService:
         bot_name: str = "小千",
         attitude_deltas: dict[str, float] | None = None,
         roster: str = "",
+        timeout_sec: float = 60.0,
     ) -> None:
         self._context = context
         self._storage = storage
@@ -68,6 +70,9 @@ class JudgeService:
         self._bot_name = bot_name
         self._attitude_deltas = attitude_deltas or {}
         self._roster = (roster or "").strip()
+        # X3：评审调用超时——provider 挂起时按失败降级（None），冷却照常
+        # 占用；不设超时的挂起任务会永久滞留并卡死该用户的后续评审
+        self._timeout_sec = max(0.0, float(timeout_sec))
 
     async def judge(
         self,
@@ -109,9 +114,16 @@ class JudgeService:
             )
             contexts = await self._recent_context(event)
             try:
-                resp = await provider.text_chat(prompt=prompt, contexts=contexts)
+                # X3：超时即按调用失败降级（外层 except → None）
+                call = provider.text_chat(prompt=prompt, contexts=contexts)
+                if self._timeout_sec > 0:
+                    call = asyncio.wait_for(call, timeout=self._timeout_sec)
+                resp = await call
             except TypeError:
-                resp = await provider.text_chat(prompt)  # 不支持 contexts 的 provider：退化为无上下文
+                call = provider.text_chat(prompt)  # 不支持 contexts 的 provider：退化为无上下文
+                if self._timeout_sec > 0:
+                    call = asyncio.wait_for(call, timeout=self._timeout_sec)
+                resp = await call
             content = (getattr(resp, "completion_text", "") or "").strip()
         except Exception as e:
             logger.warning(f"[心弦] judge 调用失败（已静默降级）: {e}")

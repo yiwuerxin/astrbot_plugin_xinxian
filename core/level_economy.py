@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .decimal import round1
+from .naming import LEVEL_NAME_BY_KEY
 
 # 各等级的默认正分乘数（键 = LevelTable 的等级名；仅正分生效，负分不吃）
 DEFAULT_LEVEL_MULT: dict[str, float] = {
@@ -102,13 +103,9 @@ class EconomyConfig:
             return None
         preset_name = str(raw.get("preset", "default") or "default").strip().lower()
         preset = PRESETS.get(preset_name, PRESETS["default"])
-        _PINYIN = {
-            "yanwu": "厌恶", "mosheng": "陌生", "renshi": "认识", "youhao": "友好",
-            "qinmi": "亲密", "zhiyou": "挚友", "zhiai": "挚爱",
-        }
         mult_raw = raw.get("level_mult") or {}
         mult = dict(preset["level_mult"])
-        for key, name in _PINYIN.items():
+        for key, name in LEVEL_NAME_BY_KEY.items():
             if key in mult_raw:
                 mult[name] = float(mult_raw[key])
             elif name in mult_raw:  # 容错：直接给中文键也认
@@ -162,7 +159,6 @@ def apply(
     # 1. 噪声地板：碎分归零（评审宽大偏置的兜底拦截）
     if cfg.noise_floor > 0 and abs(d) < cfg.noise_floor:
         return EconomyResult(delta=0.0, floored=True)
-    d = round1(d)
 
     # 2. 负面权重 / 阶段乘数（二选一，按方向）
     if d < 0:

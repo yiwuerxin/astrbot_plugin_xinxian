@@ -16,7 +16,10 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
 from ..core.decimal import fmt
+from ..core.sanitize import sanitize_text
+from ..core.taskregistry import TaskRegistry
 from ..services.favor_service import FavorService
+from ..services.impression_service import ImpressionService
 from ..services.inject_service import InjectService
 from ..services.judge_service import JudgeService
 
@@ -33,6 +36,8 @@ class Deps:
     favor: FavorService
     judge: JudgeService
     inject: InjectService
+    impressions: ImpressionService | None = None
+    registry: TaskRegistry | None = None  # X10：后台任务注册表（main 注入）
     inject_enabled: bool = True
     memory_count: int = 3
     memory_days: int = 7
@@ -54,8 +59,8 @@ def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
     return has_at_bot, is_reply_bot
 
 
-# 后台评审任务持引用（裸 create_task 只被事件循环弱引用，可能被 GC 中途回收）
-_bg_tasks: set[asyncio.Task] = set()
+# X10：后台评审任务经 Deps.registry（TaskRegistry）发起——裸 create_task
+# 只被事件循环弱引用可能被 GC 中途回收，且卸载时需 cancel_and_wait
 
 
 async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
@@ -77,7 +82,8 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         _nick = event.get_sender_name()
     except Exception:
         _nick = None
-    text = event.message_str or ""
+    # P-F：引用前缀/转发占位不冒充发言人本人，清洗后再进评审
+    text = sanitize_text(event.message_str or "")
     has_at_bot, is_reply_bot = _chain_flags(event)
 
     async def _bg() -> None:
@@ -92,25 +98,42 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                     group_id, user_id, result.delta,
                     reason=result.reason or f"judge:{result.attitude}",
                     message=text,
-                    umo=getattr(event, "unified_msg_origin", "") or "",
                 )
                 if change.delta:
                     logger.info(
                         f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
                         f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
                     )
+                    if deps.impressions is not None:
+                        await deps.impressions.maybe_refresh(
+                            group_id, user_id,
+                            umo=getattr(event, "unified_msg_origin", "") or "",
+                        )
         except Exception:
             logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）")
 
-    task = asyncio.create_task(_bg())
-    _bg_tasks.add(task)
-    task.add_done_callback(_bg_tasks.discard)
+    if deps.registry is not None:
+        deps.registry.spawn(_bg(), name=f"judge:{group_id}/{user_id}")
+    else:
+        asyncio.create_task(_bg())  # 无注册表兜底（仅测试）
 
 
 async def on_llm_request(
     deps: Deps, event: AstrMessageEvent, req: ProviderRequest
 ) -> None:
-    """LLM 请求前：注入好感度档案（仅群聊，私聊跳过）。"""
+    """LLM 请求前：注入好感度档案（仅群聊，私聊跳过）。
+
+    X2：注入是每次对话的必经路径而非增值功能——任何失败（存储/渲染/
+    模板）只 warning 并跳过本次注入，绝不把异常抛进框架钩子打断回复。"""
+    try:
+        await _on_llm_request_inner(deps, event, req)
+    except Exception:
+        logger.warning("[心弦] 注入链路异常，本次跳过注入（不影响对话）", exc_info=True)
+
+
+async def _on_llm_request_inner(
+    deps: Deps, event: AstrMessageEvent, req: ProviderRequest
+) -> None:
     if not deps.inject_enabled:
         return
     group_id, user_id = event.get_group_id(), event.get_sender_id()

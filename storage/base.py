@@ -3,9 +3,13 @@
 上层（services）只依赖本接口；实现类负责并发安全与事务性。
 
 **原子性契约（承重假设）**：FavorService 的「每日限幅读 → apply_delta 写 →
-当日额度记账」三步依赖实现类的各方法体内不含真实挂起点（同步代码的
-async 方法在事件循环里原子执行）。若引入真异步后端（aiosqlite/Redis 等），
-必须把上述序列收进同一把锁/事务内，否则每日限幅可被并发绕过。
+当日额度记账」三步，以及 set_favor / apply_undo（单事务撤销）的内部序列，
+均依赖实现类的这些方法体内不含真实挂起点（同步代码的 async 方法在事件
+循环里原子执行）。**只读路径（ranking/list_favor/distinct_groups/
+query_logs）例外（X9）**：经 asyncio.to_thread 执行、会真实让出——它们
+不参与上述读-改-写序列，线程与事件循环经实现类同一把 threading.Lock
+互斥。若引入真异步后端（aiosqlite/Redis 等），必须把全部读-改-写序列
+收进同一把锁/事务内，否则每日限幅与撤销都会被并发绕过。
 """
 
 from __future__ import annotations
@@ -59,6 +63,15 @@ class StorageBackend(ABC):
     @abstractmethod
     async def set_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
         """更新成员昵称（不改好感数值）；发言时捕获，供排行图/WebUI 显示名字。"""
+
+    @abstractmethod
+    async def set_points(self, group_id: str, user_id: str, points: list[dict]) -> None:
+        """写入印象点集（P-C 带权点模型；不改好感数值）。"""
+
+    @abstractmethod
+    async def set_profile(self, group_id: str, user_id: str, impression: str,
+                          tags: list[str], points: list[dict]) -> None:
+        """一次写入印象+标签+点集（P-C 原子档案更新；不改好感数值）。"""
 
     @abstractmethod
     async def set_impression(
@@ -127,8 +140,14 @@ class StorageBackend(ABC):
         user_id: str | None = None,
         limit: int = 200,
         offset: int = 0,
+        fuzzy: bool = False,
     ) -> list[dict]:
-        """查询变动流水（时间倒序）。每条 dict 含 id/group_id/user_id/delta/favor_before/favor_after/reason/source/ts/message/reversed。"""
+        """查询变动流水（时间倒序）。每条 dict 含 id/group_id/user_id/delta/favor_before/favor_after/reason/source/ts/message/reversed。
+
+        user_id 默认**精确匹配**（内部路径——同日衰减/修复期/近期印象/印象
+        汇总/里程碑——语义均要求精确；QQ 互为子串时模糊匹配会把他人流水
+        算进本人记忆/修复期）。fuzzy=True 仅供 WebUI 搜索框（子串匹配）。
+        """
 
     @abstractmethod
     async def get_log(self, log_id: int) -> dict | None:
@@ -137,6 +156,36 @@ class StorageBackend(ABC):
     @abstractmethod
     async def mark_reversed(self, log_id: int) -> None:
         """把某条流水标记为已撤销（reversed=1），防重复撤销。"""
+
+    @abstractmethod
+    async def apply_undo(
+        self,
+        log_id: int,
+        *,
+        max_favor: float,
+        min_favor: float,
+        effective=None,
+        default_favor: float = 0.0,
+    ) -> dict:
+        """单事务撤销一条流水（X4）。
+
+        校验未撤销 → 反向落地（含 undo 流水与 updated_at 刷新）→ 标记原行
+        reversed，全部步骤在同一事务内提交——拆开的检查-执行序列（get →
+        set_favor → mark_reversed）存在 TOCTOU：并发双击会双重反向扣分，
+        中途失败会留下"已扣分但未标记"的可重复撤销态。
+
+        effective: 可选的纯同步衰减读值函数 ``(stored, updated_at,
+        half_life) -> float``（FavorService._effective 的无 await 投影，
+        撤销以衰减后的有效值为基数——与旧实现语义一致）。必须是纯函数
+        （存储原子性契约同款约束）。None=直接用存量值。
+        default_favor: 无 favor 行时的基数（与 apply_delta 语义一致）。
+        实际变化量为 0 时（钳到值域边界）不追加 undo 流水，但仍标记
+        reversed——对齐旧 set_favor 路径行为。
+        Returns:
+            {"group_id", "user_id", "before", "after", "delta"}。
+        Raises:
+            ValueError: 记录不存在 / 该变动已撤销。
+        """
 
     @abstractmethod
     async def close(self) -> None:

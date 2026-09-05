@@ -17,11 +17,23 @@ except ImportError:  # pragma: no cover
 
 
 class PageApi:
-    """心弦 dashboard 后端 API。"""
+    """心弦 dashboard 后端 API（X7：取数一律经 service，不直拿 storage）。"""
 
-    def __init__(self, favor, storage) -> None:
+    def __init__(self, favor, impressions=None) -> None:
         self._favor = favor
-        self._storage = storage
+        self._impressions = impressions
+
+    @staticmethod
+    async def _params() -> dict:
+        """GET 查询串 + POST JSON body 合并取参（undo/refresh 已改 POST）。"""
+        params = {k: v for k, v in request.args.items()}
+        try:
+            body = await request.get_json(silent=True)
+            if isinstance(body, dict):
+                params.update(body)
+        except Exception:
+            pass  # 非 JSON body（如空 POST）按无参处理
+        return params
 
     def register(self, context) -> None:
         """注册原生 Web API；框架不支持（无 register_web_api 或无 Flask）时静默跳过。"""
@@ -31,20 +43,25 @@ class PageApi:
         reg(f"/{PLUGIN_NAME}/logs", self.handle_logs, ["GET"], "心弦 好感度变动记录")
         reg(f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表")
         reg(f"/{PLUGIN_NAME}/users", self.handle_users, ["GET"], "心弦 当前好感总览")
-        reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["GET"], "心弦 撤销/预览一次变动")
+        # X7：带副作用的端点改 POST（GET 会被预取/缓存/分享 URL 误触发）
+        reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["POST"], "心弦 撤销/预览一次变动")
         reg(f"/{PLUGIN_NAME}/member", self.handle_member, ["GET"], "心弦 成员详情（印象/标签/近期评审）")
-        reg(f"/{PLUGIN_NAME}/refresh_impression", self.handle_refresh_impression, ["GET"], "心弦 立即刷新成员印象")
+        reg(f"/{PLUGIN_NAME}/refresh_impression", self.handle_refresh_impression, ["POST"], "心弦 立即刷新成员印象")
 
     # ---------------- handlers ----------------
 
     async def handle_logs(self):
-        """变动流水：?group_id=&user_id=&limit=&offset=，按时间倒序。"""
+        """变动流水：?group_id=&user_id=&limit=&offset=&fuzzy=1，按时间倒序。
+
+        fuzzy=1 时 user_id 子串匹配（WebUI 搜索框用）；默认精确。
+        """
         try:
             group_id = (request.args.get("group_id") or "").strip() or None
             user_id = (request.args.get("user_id") or "").strip() or None
+            fuzzy = (request.args.get("fuzzy") or "").strip() == "1"
             limit = max(1, min(int(request.args.get("limit", 300)), 1000))
             offset = max(0, int(request.args.get("offset", 0)))
-            logs = await self._storage.query_logs(group_id, user_id, limit, offset)
+            logs = await self._favor.query_logs(group_id, user_id, limit, offset, fuzzy=fuzzy)
             return jsonify({"success": True, "logs": logs, "count": len(logs)})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
@@ -52,7 +69,7 @@ class PageApi:
     async def handle_groups(self):
         """有当前好感记录的群列表（含每群人数，供前端群筛选下拉）。"""
         try:
-            groups = await self._storage.distinct_groups()
+            groups = await self._favor.distinct_groups()
             return jsonify({"success": True, "groups": groups})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
@@ -75,7 +92,7 @@ class PageApi:
             if not group_id or not user_id:
                 return jsonify({"success": False, "error": "缺少 group_id/user_id"})
             rec = await self._favor.get(group_id, user_id)
-            logs = await self._storage.query_logs(group_id, user_id, limit=30)
+            logs = await self._favor.query_logs(group_id, user_id, limit=30)
             judged = [r for r in logs if r.get("source") == "judge"][:10]
             return jsonify({"success": True, "member": {
                 "group_id": group_id,
@@ -98,22 +115,26 @@ class PageApi:
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_refresh_impression(self):
-        """立即刷新成员印象：?group_id=&user_id=（与 undo 同为 GET 副作用风格）。"""
+        """立即刷新成员印象：POST {group_id, user_id}。"""
         try:
-            group_id = (request.args.get("group_id") or "").strip()
-            user_id = (request.args.get("user_id") or "").strip()
+            params = await self._params()
+            group_id = (params.get("group_id") or "").strip()
+            user_id = (params.get("user_id") or "").strip()
             if not group_id or not user_id:
                 return jsonify({"success": False, "error": "缺少 group_id/user_id"})
-            msg = await self._favor.refresh_impression_now(group_id, user_id)
-            return jsonify({"success": not msg.startswith(("刷新失败", "模型")), "message": msg})
+            if self._impressions is None:
+                return jsonify({"success": False, "error": "印象功能未启用"})
+            ok, msg = await self._impressions.refresh_now(group_id, user_id)
+            return jsonify({"success": ok, "message": msg})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_undo(self):
-        """撤销/预览：?id=<log_id>&dry=1。dry=1 只预览（返回当前/撤销后好感），否则真撤销。"""
+        """撤销/预览：POST {id, dry=1}。dry=1 只预览（返回当前/撤销后好感），否则真撤销。"""
         try:
-            log_id = int(request.args.get("id"))
-            dry = (request.args.get("dry") or "").strip() == "1"
+            params = await self._params()
+            log_id = int(params.get("id"))
+            dry = str(params.get("dry") or "").strip() == "1"
             if dry:
                 info = await self._favor.undo_preview(log_id)
                 return jsonify({"success": True, "preview": info})

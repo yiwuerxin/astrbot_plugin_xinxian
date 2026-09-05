@@ -124,7 +124,6 @@ pytest tests/ -v    # 核心层用例，不依赖 AstrBot 环境
 ```
 
 **扩展指南**
-- 新事件类型：`core/events.py` 加 EventType 与规则构造，`listeners.py` 提供判定输入
 - 新存储后端：实现 `storage/base.py` 的 StorageBackend，在 `main.py` 替换装配即可
 - 新指令/工具：`api/` 加 handler 函数，`main.py` 加薄壳方法（**@filter 只能挂在 Star 方法上**）
 

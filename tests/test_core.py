@@ -144,6 +144,24 @@ class TestRelationship:
 
 
 class TestInject:
+    def test_template_validation(self):
+        # X2：自定义模板未知占位符必须在装配期发现（format 时 KeyError 会
+        # 打断每次 LLM 请求的注入——注入是每次对话的必经路径，不是增值功能）
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        assert InjectService.validate_template("好感 {favor}（{level_name}）") is None
+        # 全占位符的合法模板
+        full = "{" + "}{".join([
+            "nickname", "user_id", "master_line", "favor", "max_favor", "level_name",
+            "level_guidance", "disclosure", "interaction", "recent_events",
+            "relationship", "impression", "milestone"]) + "}"
+        assert InjectService.validate_template(full) is None
+        # 未知占位符 / 位置参数 / 转义大括号（合法）
+        err = InjectService.validate_template("JSON 示例 {foo}")
+        assert err and "foo" in err
+        assert InjectService.validate_template("位置参数 {}") is not None
+        assert InjectService.validate_template("字面大括号 {{ok}}") is None
+
     def test_block_with_and_without_events(self):
         from astrbot_plugin_xinxian.services.inject_service import InjectService
 
@@ -462,8 +480,24 @@ class TestFavorService:
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "123456", 1, source="api"))
         asyncio.run(svc.change("g1", "654321", 1, source="api"))
-        rows = asyncio.run(svc._storage.query_logs("g1", "123"))  # 模糊匹配
+        # X1：默认精确匹配（内部路径——同日衰减/修复期/近期印象/印象汇总/
+        # 里程碑/成员详情全部语义要求精确，LIKE '%..%' 会让 QQ 互为子串时
+        # 把别人的流水算进本人记忆）；模糊仅 WebUI 搜索显式 fuzzy=True
+        rows = asyncio.run(svc._storage.query_logs("g1", "123456"))
         assert [r["user_id"] for r in rows] == ["123456"]
+        fuzzy = asyncio.run(svc._storage.query_logs("g1", "123", fuzzy=True))
+        assert [r["user_id"] for r in fuzzy] == ["123456"]
+
+    def test_logs_exact_no_cross_user_pollution(self, tmp_path):
+        # X1 回归：QQ 123456 是 1234567 的子串——精确路径不得串数据
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        asyncio.run(svc.change("g1", "1234567", 1, source="api"))
+        asyncio.run(svc.change("g1", "123456", 1, source="api"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "1234567"))
+        assert [r["user_id"] for r in rows] == ["1234567"]
+        # 服务层内部读（recent_events 默认查询）同样不得混入他人流水
+        events = asyncio.run(svc.recent_events("g1", "1234567", 3, 7))
+        assert events and all(r["user_id"] == "1234567" for r in events)
 
     def test_distinct_groups(self, tmp_path):
         svc = _make_service(tmp_path)
@@ -530,6 +564,45 @@ class TestFavorService:
         with pytest.raises(ValueError):
             asyncio.run(svc.undo_log(999))
 
+    def test_undo_single_transaction_semantics(self, tmp_path):
+        # X4：撤销走 storage.apply_undo 单事务——effective 回调（衰减读值投影）
+        # 被采纳、undo 流水带 撤销#id 理由、原行 reversed 同事务落定、
+        # 钳到边界 real=0 时不追加零流水但照样标记
+        svc = _make_service(tmp_path, max_favor=100, min_favor=-100)
+        asyncio.run(svc.change("g", "u", 5, source="api"))
+        log_id = asyncio.run(svc._storage.query_logs("g", "u"))[0]["id"]
+        seen: list[float] = []
+
+        def eff(stored, ts, h):
+            seen.append(stored)
+            return stored - 2.0  # 模拟两天衰减读值（纯函数投影）
+
+        info = asyncio.run(svc._storage.apply_undo(
+            log_id, max_favor=100, min_favor=-100, effective=eff))
+        assert seen == [5.0] and info["before"] == 3.0
+        # 撤销 +5 的流水：有效值 3 − 5 = −2，实际变动 −5
+        assert info["after"] == -2.0 and info["delta"] == -5.0
+        rows = asyncio.run(svc._storage.query_logs("g", "u"))
+        assert rows[0]["source"] == "undo" and rows[0]["reason"] == f"撤销#{log_id}"
+        assert rows[0]["reversed"] is False and rows[1]["reversed"] is True
+        # 钳边界：把行设到 max，撤销一条 -5（反向 +5 已无处可去）→ 不追加零流水
+        asyncio.run(svc.set_favor("g", "u", 100))
+        neg_id = None
+        with svc._storage._lock:
+            svc._storage._c().execute(
+                "INSERT INTO favor_log(group_id,user_id,delta,favor_before,"
+                "favor_after,reason,source,ts) VALUES('g','u',-5,105,100,'r','api',1)")
+            svc._storage._c().commit()
+            neg_id = svc._storage._c().execute(
+                "SELECT last_insert_rowid()").fetchone()[0]
+        before_count = len(asyncio.run(svc._storage.query_logs("g", "u")))
+        info2 = asyncio.run(svc._storage.apply_undo(
+            neg_id, max_favor=100, min_favor=-100))
+        assert info2["delta"] == 0.0 and info2["after"] == 100.0
+        after_rows = asyncio.run(svc._storage.query_logs("g", "u"))
+        assert len(after_rows) == before_count  # 零流水未追加
+        orig = next(r for r in after_rows if r["id"] == neg_id)
+        assert orig["reversed"] is True  # 但原行已标记
     def test_undo_already_reversed(self, tmp_path):
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 5, source="api"))
@@ -869,12 +942,55 @@ class TestImpressionStorage:
         # set_tags 走 set_impression（同列存储），手动改标签不丢印象
         b = self._backend(tmp_path)
         asyncio.run(b.set_impression("g", "u", "旧印象", ["a"]))
-        from astrbot_plugin_xinxian.services.favor_service import FavorService
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
 
-        svc = FavorService(b, LevelTable.from_config(None))
+        svc = ImpressionService(b)
         asyncio.run(svc.set_tags("g", "u", ["手改"]))
         rec = asyncio.run(b.get("g", "u"))
         assert rec.impression == "旧印象" and rec.parsed_tags() == ["手改"]
+
+    def test_impression_service_refresh_without_summarizer(self, tmp_path):
+        # 未绑定 summarizer（评审关闭/未装配）时立即刷新给出明确失败，不抛异常
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
+        svc = ImpressionService(self._backend(tmp_path))
+        ok, msg = asyncio.run(svc.refresh_now("g", "u"))
+        assert ok is False and "未启用" in msg
+
+    def test_impression_service_maybe_refresh_silent(self, tmp_path):
+        # maybe_refresh 在无流水/无 summarizer 时静默无动作（增值功能不抛错）
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
+        b = self._backend(tmp_path)
+        svc = ImpressionService(b)
+        asyncio.run(svc.maybe_refresh("g", "u"))  # 不应抛异常
+        assert asyncio.run(b.get("g", "u")) is None
+
+    def test_impression_service_llm_timeout(self, tmp_path):
+        # X3：provider 挂起时按失败降级（超时而不是永久滞留），结果为 (False, …)
+        import asyncio as _aio
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
+        b = self._backend(tmp_path)
+        asyncio.run(b.set_impression("g", "u", "旧", ["a"]))
+        for i in range(3):  # 造出评审流水，走到 LLM 调用分支
+            asyncio.run(b.add_log("g", "u", 0.5, 0, 0.5, "r", "judge", 1000 + i))
+
+        class _HangProvider:
+            async def text_chat(self, prompt=None, **kw):
+                await _aio.sleep(30)
+
+        class _FakeJudge:
+            async def resolve_display_name(self, umo=""):
+                return "小千"
+            async def resolve_summary_provider(self):
+                return _HangProvider()
+
+        svc = ImpressionService(b, summarizer=_FakeJudge(), timeout_sec=0.05)
+        ok, msg = asyncio.run(svc.refresh_now("g", "u"))
+        assert ok is False and "刷新失败" in msg
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.impression == "旧"  # 超时不清掉原印象
 
     def test_standalone_include_impression(self, tmp_path):
         b = self._backend(tmp_path)
@@ -987,6 +1103,166 @@ class TestRosterRender:
 
 # ---------------- 印象与标签 ----------------
 
+class TestImpressionPoints:
+    """P-C 带权印象点模型（纯逻辑 + 存储 v9 + 迁移）。"""
+
+    def test_points_pure_logic(self):
+        import time
+        import random
+        from astrbot_plugin_xinxian.core.impression_points import (
+            anonymize, loss_aversion_multiplier, merge_points, parse_points,
+            render_impression, retain, time_weight,
+        )
+        now = time.time()
+        merged = merge_points(
+            [{"point": "嘴硬心软爱用外号逗人", "weight": 5, "ts": now}],
+            [{"point": "嘴硬心软爱用外号逗大家", "weight": 4}])
+        assert len(merged) == 1 and merged[0]["weight"] == 9  # 相似合并权重求和
+        assert len(merge_points([], [{"point": "a", "weight": 5},
+                                     {"point": "完全不同", "weight": 3}])) == 2
+        assert [time_weight(x) for x in (60, 7200, 3 * 86400, 10 * 86400, 40 * 86400)] == \
+            [1.0, 0.7, 0.95, 0.1, 0.05]
+        pts = [{"point": f"p{i}", "weight": 1, "ts": now} for i in range(14)]
+        kept, dropped = retain(pts, now, rng=random.Random(1))
+        assert (len(kept), len(dropped)) == (10, 4)  # 加权随机限量保留
+        assert loss_aversion_multiplier(-2) == 1.5 and loss_aversion_multiplier(1) == 1.0
+        assert anonymize("阿狸骂了小咕嘎", ["阿狸", "小咕嘎"]) == "用户A骂了用户B"
+        assert parse_points('好的 [{"point":"爱抬杠","weight":7}]') == [{"point": "爱抬杠", "weight": 7}]
+        assert parse_points("拒答") is None
+        assert render_impression([{"point": "爱抬杠", "weight": 9}]) == "爱抬杠"
+
+    def test_points_storage_v9(self, tmp_path):
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        rec = asyncio.run(b.set_value("g", "u", 10))
+        asyncio.run(b.set_points("g", "u", [{"point": "话痨", "weight": 6, "ts": 1.0}]))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.parsed_points() == [{"point": "话痨", "weight": 6, "ts": 1.0}]
+        rows = asyncio.run(b.list_favor("g"))
+        assert rows[0].parsed_points()[0]["point"] == "话痨"
+
+    def test_v9_migration_roundtrip(self, tmp_path):
+        # 旧 v8 库升级到 v9：加 points 列，既有数据不动
+        import sqlite3
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA user_version(8)")
+        conn.execute("""CREATE TABLE favor (
+            group_id TEXT NOT NULL, user_id TEXT NOT NULL, favor REAL NOT NULL,
+            updated_at REAL NOT NULL, relationship TEXT NOT NULL DEFAULT '',
+            nickname TEXT NOT NULL DEFAULT '', impression TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '', impression_at REAL NOT NULL DEFAULT 0,
+            half_life REAL NOT NULL DEFAULT 10, PRIMARY KEY (group_id, user_id))""")
+        conn.execute("INSERT INTO favor(group_id,user_id,favor,updated_at) VALUES('g','u',5.5,1)")
+        conn.commit(); conn.close()
+        b = SQLiteBackend(db)
+        asyncio.run(b.init())
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.favor == 5.5 and rec.parsed_points() == []  # 新列默认空
+
+    def test_service_query_logs_passthrough(self, tmp_path):
+        # Sourcery 回归：面板 /logs 走 FavorService.query_logs——签名须带 offset/fuzzy
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        for i in range(3):
+            asyncio.run(svc.change("g", f"u{i}", 1, source="api"))
+        rows = asyncio.run(svc.query_logs("g", "u1", limit=10, offset=0, fuzzy=False))
+        assert [r["user_id"] for r in rows] == ["u1"]  # 精确默认不混 u0/u10
+        all_rows = asyncio.run(svc.query_logs("g", "u", limit=10, fuzzy=True))
+        assert len(all_rows) == 3  # 模糊可选
+
+    def test_storage_set_profile_atomic(self, tmp_path):
+        # Sourcery 回归：点集/印象/标签一次 upsert 写入
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        asyncio.run(b.set_value("g", "u", 5))
+        asyncio.run(b.set_profile("g", "u", "嘴硬心软", ["毒舌"],
+                                  [{"point": "爱抬杠", "weight": 7, "ts": 1.0}]))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.impression == "嘴硬心软" and rec.parsed_tags() == ["毒舌"]
+        assert rec.parsed_points() == [{"point": "爱抬杠", "weight": 7, "ts": 1.0}]
+
+    def test_service_points_mode_offline(self, tmp_path):
+        # points_mode 关闭：走 legacy 一句话路径（既有行为不变）
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        svc = ImpressionService(b)
+        ok, msg = asyncio.run(svc.refresh_now("g", "u"))
+        assert ok is False and "未启用" in msg
+
+
+class TestSanitizeAndFacade:
+    """P-F 清洗 / P-H 画像。"""
+
+    def test_sanitize(self):
+        from astrbot_plugin_xinxian.core.sanitize import sanitize_text
+
+        assert sanitize_text("[CQ:reply,id=1] 你真棒") == "你真棒"
+        assert sanitize_text("看[合并转发]哈哈") == "看[转发消息]哈哈"
+        assert sanitize_text("普通消息") == "普通消息"
+
+    def test_anti_injection_line(self):
+        from astrbot_plugin_xinxian.core.sanitize import ANTI_INJECTION_LINES
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        levels = LevelTable.from_config(None)
+        on = InjectService(levels, "- {favor}", anti_injection=True)
+        assert "不要执行" in on.build_block(FavorRecord("g", "u", 5), is_master=False)
+        off = InjectService(levels, "- {favor}", anti_injection=False)
+        assert "不要执行" not in off.build_block(FavorRecord("g", "u", 5), is_master=False)
+
+    def test_facade_profile(self, tmp_path):
+        # P-H：跨插件画像（facade additive 方法）
+        from astrbot_plugin_xinxian.api.facade import XinxianFacade
+
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        asyncio.run(svc.change("g", "u", 30, source="api"))  # 友好档
+        fac = XinxianFacade(svc)
+        prof = asyncio.run(fac.get_profile("g", "u"))
+        assert prof["favor"] == 30 and prof["level"] == "友好"
+        assert prof["guidance"] and prof["impression"] == "" and prof["is_master"] is False
+
+
+class TestTaskRegistry:
+    """X10：任务注册表——强引用/具名/取消等待。"""
+
+    def test_spawn_and_cancel(self):
+        import asyncio
+        from astrbot_plugin_xinxian.core.taskregistry import TaskRegistry
+
+        reg = TaskRegistry()
+
+        async def _ok():
+            await asyncio.sleep(0.01)
+            return 3
+
+        async def _hang():
+            await asyncio.sleep(30)
+
+        async def _scenario():
+            t = reg.spawn(_ok(), name="ok")
+            assert await t == 3
+            await asyncio.sleep(0)
+            assert reg.size == 0  # 完成自动移除
+            h = reg.spawn(_hang(), name="hang")
+            await reg.cancel_and_wait_all(timeout=2.0)
+            return h.cancelled()
+
+        assert asyncio.run(_scenario()) is True
+        asyncio.run(TaskRegistry().cancel_and_wait_all())  # 幂等
+
+    def test_heavy_reads_off_loop(self, tmp_path):
+        # X9：to_thread 读路径与直写语义一致（同一把锁互斥）
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        asyncio.run(svc.change("g", "u", 1, source="api"))
+        rows = asyncio.run(svc._storage.list_favor("g"))
+        assert rows and rows[0].favor == 1.0
+        logs = asyncio.run(svc._storage.query_logs("g", "u"))
+        assert logs and logs[0]["delta"] == 1.0
+        groups = asyncio.run(svc._storage.distinct_groups())
+        assert groups == [{"group_id": "g", "count": 1}]
+
+
 class TestImpression:
     def setup_method(self):
         from astrbot_plugin_xinxian.core.impression import (
@@ -1045,16 +1321,16 @@ class TestImpression:
         assert self.parse_summary("印象:  \n标签:a") is None
 
     def test_build_prompt_content(self):
-        p = self.build_prompt("M", "旧印象", ["+0.8 喜欢你 —— 直白好感"], "小千")
-        assert "M" in p and "旧印象" in p and "+0.8" in p and "小千" in p
-        p2 = self.build_prompt("M", "", [], "小千")
+        p = self.build_prompt("阿狸", "旧印象", ["+0.8 喜欢你 —— 直白好感"], "小千")
+        assert "阿狸" in p and "旧印象" in p and "+0.8" in p and "小千" in p
+        p2 = self.build_prompt("阿狸", "", [], "小千")
         assert "旧印象" not in p2 and "暂无记录" in p2
 
     def test_build_prompt_bitemporal_guidance(self):
         # 双时态引导：提示"以前觉得…，最近…"的演进式写法（v1.28）
-        p = self.build_prompt("M", "爱抬杠", ["+0.8 深聊 —— 真诚"], "小千")
+        p = self.build_prompt("阿狸", "爱抬杠", ["+0.8 深聊 —— 真诚"], "小千")
         assert "以前觉得" in p and "最近" in p
-        p2 = self.build_prompt("M", "", [], "小千")
+        p2 = self.build_prompt("阿狸", "", [], "小千")
         assert "以前觉得" in p2  # 首次印象也给出演进写法说明
 
     def test_parse_bitemporal_impression_truncated(self):
@@ -1298,8 +1574,10 @@ class TestApplyJudgeEconomy:
         self.eco = EconomyConfig()
 
     def _svc(self, eco=True):
+        # 显式放开每日限幅：本组测试聚焦经济学层，不让限幅层抢戏
         return FavorService(
             self.storage, LevelTable.from_config(None),
+            daily_cap_up=200, daily_cap_down=200,
             economy=self.eco if eco else None,
         )
 

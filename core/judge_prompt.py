@@ -10,14 +10,9 @@ judge 模板占位符：{text}（原话）、{persona_name}（当前人格称呼
 from __future__ import annotations
 
 from .decimal import fmt
+from .judge_parse import DEFAULT_ATTITUDE_DELTAS
 
 _PERSONA_SNIPPET_MAX = 500
-
-# 档位锚点默认值（与 core.judge_parse.DEFAULT_ATTITUDE_DELTAS 同值；
-# 此处独立声明，避免两个纯模块互相 import）
-_ANCHOR_DEFAULTS: dict[str, float] = {
-    "敌意": -2.5, "冷淡": -0.8, "中性": 0.0, "友好": 0.6, "热情": 1.8,
-}
 
 
 def tier_ranges_line(deltas: dict[str, float] | None, max_abs: float = 3.0) -> str:
@@ -28,10 +23,10 @@ def tier_ranges_line(deltas: dict[str, float] | None, max_abs: float = 3.0) -> s
     热情 [热情锚, |max_abs|]。锚点改配置时提示词随钳制同步，不再两处手写。
     """
     d = deltas or {}
-    di = float(d.get("敌意", _ANCHOR_DEFAULTS["敌意"]))
-    ld = float(d.get("冷淡", _ANCHOR_DEFAULTS["冷淡"]))
-    yh = float(d.get("友好", _ANCHOR_DEFAULTS["友好"]))
-    rq = float(d.get("热情", _ANCHOR_DEFAULTS["热情"]))
+    di = float(d.get("敌意", DEFAULT_ATTITUDE_DELTAS["敌意"]))
+    ld = float(d.get("冷淡", DEFAULT_ATTITUDE_DELTAS["冷淡"]))
+    yh = float(d.get("友好", DEFAULT_ATTITUDE_DELTAS["友好"]))
+    rq = float(d.get("热情", DEFAULT_ATTITUDE_DELTAS["热情"]))
     hi = max(abs(float(max_abs or 3.0)), rq)
     return (
         f"敌意 {fmt(di)}~{fmt(ld)} / 冷淡 {fmt(ld)}~-0.1 / 中性 0 / "

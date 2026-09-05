@@ -30,6 +30,17 @@ class FavorRecord:
     tags: str = ""          # JSON 数组字符串（如 '["毒舌","夜猫子"]'）
     impression_at: float = 0.0
     half_life: float = 10.0  # 遗忘曲线半衰期（天）；正互动巩固增长
+    points: str = "[]"       # P-C 印象带权点模型（JSON 数组字符串）
+
+    def parsed_points(self) -> list[dict]:
+        """points JSON 字符串 → 印象点列表；损坏/空返回 []。"""
+        if not self.points:
+            return []
+        try:
+            v = json.loads(self.points)
+            return [dict(t) for t in v] if isinstance(v, list) else []
+        except Exception:
+            return []
 
     def parsed_tags(self) -> list[str]:
         """tags JSON 字符串 → 标签列表；损坏/空返回 []。"""
@@ -73,7 +84,7 @@ class FavorChange:
     Attributes:
         delta: 实际生效的变化量（经过冷却与每日上限截断后）。
         reason: 变化原因（事件名或 judge:态度）。
-        source: 来源标识：rule / judge / admin / tool / api。
+        source: 来源标识：judge / admin / api / undo 等。
         clamped: 是否被冷却或每日上限截断过。
         favor_after: 变化后的好感度。
     """

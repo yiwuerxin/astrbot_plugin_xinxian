@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -45,7 +46,7 @@ class SQLiteBackend(StorageBackend):
     async def get(self, group_id: str, user_id: str) -> FavorRecord | None:
         with self._lock:
             row = self._c().execute(
-                "SELECT favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life "
+                "SELECT favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life, points "
                 "FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
@@ -56,7 +57,7 @@ class SQLiteBackend(StorageBackend):
             favor=float(row[0]), updated_at=row[1],
             relationship=row[2] or "", nickname=row[3] or "",
             impression=row[4] or "", tags=row[5] or "", impression_at=row[6] or 0.0,
-            half_life=float(row[7] or 10.0),
+            half_life=float(row[7] or 10.0), points=row[8] or "[]",
         )
 
     async def apply_delta(
@@ -107,56 +108,75 @@ class SQLiteBackend(StorageBackend):
             conn.commit()
         return FavorRecord(group_id, user_id, new_value, now, half_life=new_h), real_delta
 
-    async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
+    def _upsert(self, group_id: str, user_id: str, cols: dict[str, object], *, touch: bool = False) -> None:
+        """锁内 upsert favor 表的指定列（须在 self._lock 内调用）。
+
+        无记录时 INSERT（一律带 updated_at=now，新行以"现在"起算衰减锚点）；
+        行存在时只 UPDATE 给定列。touch=True 时冲突分支一并刷新
+        updated_at（好感数值变动必须重置衰减锚点；昵称/关系/印象不算
+        好感变动，不重置）。列名来自本类固定调用点，无用户输入。
+        """
         now = time.time()
+        col_sql = ", ".join(cols)
+        ph = ", ".join("?" for _ in cols)
+        update_sql = ", ".join(f"{c}=excluded.{c}" for c in cols)
+        if touch:
+            update_sql += ", updated_at=excluded.updated_at"
+        self._c().execute(
+            f"INSERT INTO favor(group_id, user_id, updated_at, {col_sql}) "
+            f"VALUES(?,?,?,{ph}) "
+            f"ON CONFLICT(group_id, user_id) DO UPDATE SET {update_sql}",
+            (group_id, user_id, now, *cols.values()),
+        )
+        self._c().commit()
+
+    async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
         value = round1(value)
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "favor=excluded.favor, updated_at=excluded.updated_at",
-                (group_id, user_id, value, now),
-            )
-            self._c().commit()
-        return FavorRecord(group_id, user_id, value, now)
+            self._upsert(group_id, user_id, {"favor": value}, touch=True)
+        return FavorRecord(group_id, user_id, value, time.time())
 
     async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
-        now = time.time()
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, updated_at, relationship) VALUES(?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "relationship=excluded.relationship",
-                (group_id, user_id, now, relationship or ""),
-            )
-            self._c().commit()
+            self._upsert(group_id, user_id, {"relationship": relationship or ""})
 
     async def set_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
-        now = time.time()
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, updated_at, nickname) VALUES(?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET nickname=excluded.nickname",
-                (group_id, user_id, now, nickname or ""),
-            )
-            self._c().commit()
+            self._upsert(group_id, user_id, {"nickname": nickname or ""})
+
+    async def set_points(self, group_id: str, user_id: str, points: list[dict]) -> None:
+        """写入印象点集（P-C；不改好感数值/衰减锚）。"""
+        import json as _json
+        with self._lock:
+            self._upsert(group_id, user_id, {
+                "points": _json.dumps(list(points or []), ensure_ascii=False)})
+
+    async def set_profile(self, group_id: str, user_id: str, impression: str,
+                          tags: list[str], points: list[dict]) -> None:
+        """一次 upsert 同步写 印象/标签/点集（Sourcery：分两次写会在第二步
+        失败时留下"点已并、印象仍旧"的不一致，重试再并一次会膨胀权重）。"""
+        import json as _json
+        with self._lock:
+            self._upsert(group_id, user_id, {
+                "impression": (impression or "").strip(),
+                "tags": _json.dumps(list(tags or []), ensure_ascii=False),
+                "points": _json.dumps(list(points or []), ensure_ascii=False)})
 
     async def set_impression(
         self, group_id: str, user_id: str, impression: str, tags: list[str]
     ) -> None:
-        now = time.time()
         with self._lock:
-            self._c().execute(
-                "INSERT INTO favor(group_id, user_id, updated_at, impression, tags, impression_at) "
-                "VALUES(?,?,?,?,?,?) "
-                "ON CONFLICT(group_id, user_id) DO UPDATE SET "
-                "impression=excluded.impression, tags=excluded.tags, impression_at=excluded.impression_at",
-                (group_id, user_id, now,
-                 (impression or "").strip(), json.dumps(list(tags or []), ensure_ascii=False), now),
-            )
-            self._c().commit()
+            self._upsert(group_id, user_id, {
+                "impression": (impression or "").strip(),
+                "tags": json.dumps(list(tags or []), ensure_ascii=False),
+                "impression_at": time.time(),
+            })
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
+        # X9：重读走线程池（不再阻塞主线程的回复）
+        return await asyncio.to_thread(self._ranking_sync, group_id, limit)
+
+    def _ranking_sync(self, group_id: str, limit: int) -> list[FavorRecord]:
         with self._lock:
             rows = self._c().execute(
                 "SELECT user_id, favor, updated_at FROM favor "
@@ -166,32 +186,40 @@ class SQLiteBackend(StorageBackend):
         return [FavorRecord(group_id, r[0], float(r[1]), r[2]) for r in rows]
 
     async def list_favor(self, group_id: str | None = None, limit: int = 500) -> list[FavorRecord]:
+        return await asyncio.to_thread(self._list_favor_sync, group_id, limit)
+
+    def _list_favor_sync(self, group_id: str | None, limit: int) -> list[FavorRecord]:
         with self._lock:
             if group_id:
                 rows = self._c().execute(
-                    "SELECT user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life FROM favor "
+                    "SELECT user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life, points FROM favor "
                     "WHERE group_id=? ORDER BY updated_at DESC LIMIT ?",
                     (group_id, limit),
                 ).fetchall()
                 recs = [
                     FavorRecord(group_id, r[0], float(r[1]), r[2], r[3] or "", r[4] or "",
-                                r[5] or "", r[6] or "", r[7] or 0.0, float(r[8] or 10.0))
+                                r[5] or "", r[6] or "", r[7] or 0.0, float(r[8] or 10.0),
+                                r[9] or "[]")
                     for r in rows
                 ]
             else:
                 rows = self._c().execute(
-                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life FROM favor "
+                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life, points FROM favor "
                     "ORDER BY updated_at DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
                 recs = [
                     FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "", r[5] or "",
-                                r[6] or "", r[7] or "", r[8] or 0.0, float(r[9] or 10.0))
+                                r[6] or "", r[7] or "", r[8] or 0.0, float(r[9] or 10.0),
+                                r[10] or "[]")
                     for r in rows
                 ]
         return recs
 
     async def distinct_groups(self) -> list[dict]:
+        return await asyncio.to_thread(self._distinct_groups_sync)
+
+    def _distinct_groups_sync(self) -> list[dict]:
         with self._lock:
             rows = self._c().execute(
                 "SELECT group_id, COUNT(*) FROM favor GROUP BY group_id ORDER BY group_id"
@@ -273,7 +301,14 @@ class SQLiteBackend(StorageBackend):
             self._c().commit()
 
     async def query_logs(
-        self, group_id=None, user_id=None, limit=200, offset=0
+        self, group_id=None, user_id=None, limit=200, offset=0, fuzzy=False
+    ) -> list[dict]:
+        # X9：流水查询（面板 limit 可达 1000，LIKE 模糊走不了索引）放线程池
+        return await asyncio.to_thread(
+            self._query_logs_sync, group_id, user_id, limit, offset, fuzzy)
+
+    def _query_logs_sync(
+        self, group_id=None, user_id=None, limit=200, offset=0, fuzzy=False
     ) -> list[dict]:
         sql = (
             "SELECT id, group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message, reversed "
@@ -285,8 +320,15 @@ class SQLiteBackend(StorageBackend):
             where.append("group_id = ?")
             args.append(group_id)
         if user_id:
-            where.append("user_id LIKE ?")
-            args.append(f"%{user_id}%")
+            # X1：默认精确匹配——内部路径（衰减计数/修复期/记忆注入）语义
+            # 要求精确，LIKE 前导通配会把互为子串的 QQ 混进来；fuzzy 仅
+            # 供 WebUI 搜索显式开启（该路径 LIKE 无法走索引，属已知代价）
+            if fuzzy:
+                where.append("user_id LIKE ?")
+                args.append(f"%{user_id}%")
+            else:
+                where.append("user_id = ?")
+                args.append(user_id)
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"
@@ -339,6 +381,67 @@ class SQLiteBackend(StorageBackend):
                 "UPDATE favor_log SET reversed=1 WHERE id=?", (int(log_id),)
             )
             self._c().commit()
+
+    async def apply_undo(
+        self,
+        log_id: int,
+        *,
+        max_favor: float,
+        min_favor: float,
+        effective=None,
+        default_favor: float = 0.0,
+    ) -> dict:
+        """单事务撤销（契约见 base.py）：校验→反向→流水→标记，一个 commit。"""
+        now = time.time()
+        with self._lock:
+            conn = self._c()
+            try:
+                conn.execute("BEGIN")
+                row = conn.execute(
+                    "SELECT group_id, user_id, delta, reversed FROM favor_log WHERE id=?",
+                    (int(log_id),),
+                ).fetchone()
+                if row is None:
+                    raise ValueError("记录不存在")
+                if row[3]:
+                    raise ValueError("该变动已撤销")
+                group_id, user_id, delta = row[0], row[1], float(row[2])
+                frow = conn.execute(
+                    "SELECT favor, updated_at, half_life FROM favor "
+                    "WHERE group_id=? AND user_id=?",
+                    (group_id, user_id),
+                ).fetchone()
+                if frow:
+                    stored, ts, h = float(frow[0]), frow[1], float(frow[2] or 10.0)
+                else:
+                    stored, ts, h = float(default_favor or 0.0), 0.0, 10.0
+                cur = effective(stored, ts, h) if effective else round1(stored)
+                target = round1(max(min_favor, min(max_favor, round1(cur - delta))))
+                real = round1(target - cur)
+                conn.execute(
+                    "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
+                    "ON CONFLICT(group_id, user_id) DO UPDATE SET "
+                    "favor=excluded.favor, updated_at=excluded.updated_at",
+                    (group_id, user_id, target, now),
+                )
+                if real != 0:
+                    conn.execute(
+                        "INSERT INTO favor_log(group_id, user_id, delta, favor_before, "
+                        "favor_after, reason, source, ts) VALUES(?,?,?,?,?,?,?,?)",
+                        (group_id, user_id, real, round1(cur), target,
+                         f"撤销#{int(log_id)}", "undo", now),
+                    )
+                conn.execute(
+                    "UPDATE favor_log SET reversed=1 WHERE id=?", (int(log_id),)
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {
+            "group_id": group_id, "user_id": user_id,
+            "before": round1(cur), "after": target, "delta": real,
+        }
 
     async def close(self) -> None:
         with self._lock:

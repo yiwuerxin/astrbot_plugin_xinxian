@@ -2,18 +2,17 @@
 
 增减、查询、防刷（单事件冷却 + 每日双向限幅）。
 所有变化都经这里收口，是好感度数值管理的唯一入口。
+成员印象的维护在 ImpressionService（v1.29.3 拆出）。
 """
 
 from __future__ import annotations
 
-import asyncio
 import time
 from datetime import date, datetime
 
 from ..core.decay import HALF_LIFE_MIN, effective_favor
 from ..core.decimal import round1
 from ..core.identity import is_master as _is_master
-from ..core.impression import build_summary_prompt, parse_summary, stats_tags
 from ..core.levels import LevelTable
 from ..core.level_economy import EconomyConfig, apply as apply_economy
 from ..core.level_economy import repair_params_for_level
@@ -33,8 +32,8 @@ class FavorService:
         max_favor: float = 100,
         min_favor: float = -100,
         default_favor: float = 0,
-        daily_cap_up: float = 15,
-        daily_cap_down: float = 15,
+        daily_cap_up: float = 4,
+        daily_cap_down: float = 8,
         master_ids: list[str] | tuple[str, ...] = (),
         decay_enabled: bool = False,
         half_life_base: float = 10.0,
@@ -43,7 +42,6 @@ class FavorService:
         decay_baseline: float = 0.0,
         relationships: RelationshipTable | None = None,
         economy: EconomyConfig | None = None,
-        impression_interval: int = 8,
         tz_name: str = "",
         decay_floor_enabled: bool = False,
     ) -> None:
@@ -52,8 +50,8 @@ class FavorService:
         self.max_favor = max_favor
         self.min_favor = min_favor
         self.default_favor = default_favor
-        # 等级衰减地板（星露谷式）：开启后按"最多跌一级"托底——衰减读值
-        # 不低于当前等级的下一级下沿（挚爱最多衰到亲密档），久别重逢
+        # 等级衰减地板（星露谷式）：开启后按"最多跌两级"托底——衰减读值
+        # 不低于当前等级往下两级的下沿（挚爱最多衰到亲密档），久别重逢
         # 不掉出熟悉区间。地板只对存量高于地板的记录生效。
         self._decay_floor_enabled = decay_floor_enabled
         # 配置钳制：负上限 / <1 的巩固系数会让限幅与遗忘方向反着来，这里兜住
@@ -73,8 +71,6 @@ class FavorService:
         )
         self._relationships = relationships
         self._economy = economy
-        self._impression_interval = max(1, int(impression_interval))
-        self._summarizer = None  # 由 main.py 注入（JudgeService，借其 provider 解析）
         self._nick_cache: dict[tuple[str, str], str] = {}
         # 每日限幅/同日衰减的"一天"边界时区。默认东八区（插件面向 QQ/中文
         # 社区，而 Docker 容器系统时区多为 UTC——按 UTC 换日会让"每天"在
@@ -88,8 +84,6 @@ class FavorService:
             )
         except Exception:
             self._tz = None
-        # 后台印象刷新任务持引用（裸 create_task 可能被 GC 中途回收）
-        self._bg_tasks: set[asyncio.Task] = set()
 
     # ---------- 查询 ----------
 
@@ -126,7 +120,7 @@ class FavorService:
         """读取时的有效好感度（启用衰减时按指数遗忘曲线向基线收敛）。
 
         half_life 取自该成员记录（正互动巩固过的老朋友衰减更慢）；
-        启用地板时按"最多跌一级"托底。
+        启用地板时按"最多跌两级"托底。
         """
         if self._decay is None:
             return round1(stored)
@@ -213,14 +207,25 @@ class FavorService:
         key = (group_id, user_id)
         if self._nick_cache.get(key) == nick:
             return
+        # 昵称缓存只省一次对比读，全清代价可忽略；封顶防长寿命大群无界增长
+        if len(self._nick_cache) >= 4096:
+            self._nick_cache.clear()
         if await self._storage.get(group_id, user_id) is None:
             await self._storage.set_value(group_id, user_id, self.default_favor)
         await self._storage.set_nickname(group_id, user_id, nick)
         self._nick_cache[key] = nick
 
-    async def query_logs(self, group_id: str, user_id: str, limit: int = 20) -> list[dict]:
-        """流水查询透传（注入链路一次拉取，milestone/recent_events 共用）。"""
-        return await self._storage.query_logs(group_id, user_id, limit=limit)
+    async def distinct_groups(self) -> list[dict]:
+        """有记录的群列表（面板群筛选用；storage 透传，X7 面板不直拿存储）。"""
+        return await self._storage.distinct_groups()
+
+    async def query_logs(self, group_id: str, user_id: str, limit: int = 20,
+                         offset: int = 0, fuzzy: bool = False) -> list[dict]:
+        """流水查询透传（注入链路一次拉取，milestone/recent_events 共用）。
+
+        fuzzy=True 仅供面板搜索（子串匹配）；内部路径一律精确。"""
+        return await self._storage.query_logs(
+            group_id, user_id, limit=limit, offset=offset, fuzzy=fuzzy)
 
     async def recent_events(
         self, group_id: str, user_id: str, count: int = 3, days: int = 7,
@@ -262,10 +267,11 @@ class FavorService:
         数据直接来自流水的 favor_before/favor_after（零额外写入）：等级表
         升序序位抬升即升级。只认评审路径（source="judge"）的有机跨越，
         管理员设置/撤销不算。供注入「关系里程碑」——升级 48h 内小千
-        "知道"关系刚升温。已撤销的行不算。
+        "知道"关系刚升温。已撤销的行不算。logs 需调用方传入（本方法为
+        纯同步实现，不查库）。
         """
         try:
-            rows = logs if logs is not None else []
+            rows = logs or []
             if not rows:
                 return None
             order = {lv.name: i for i, lv in enumerate(self._levels.all())}
@@ -285,92 +291,18 @@ class FavorService:
         except Exception:
             return None
 
-    def bind_summarizer(self, judge) -> None:
-        """注入 JudgeService（借其 provider 解析与人格名，用于印象汇总调用）。"""
-        self._summarizer = judge
-
-    async def maybe_refresh_impression(self, group_id: str, user_id: str, umo: str = "") -> None:
-        """每次有效评审后调用：每 interval 次触发一次后台印象刷新（不阻塞、失败静默）。
-
-        umo: 会话标识（用于解析当前人格名）；后台任务持引用防 GC。"""
-        if self._summarizer is None or self._impression_interval <= 0:
-            return
-        try:
-            logs = await self._storage.query_logs(group_id, user_id, limit=self._impression_interval)
-            hit = sum(1 for r in logs if r.get("source") == "judge")
-            if hit and hit % self._impression_interval == 0:
-                task = asyncio.create_task(
-                    self._refresh_impression_inner(group_id, user_id, umo)
-                )
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
-        except Exception:
-            pass  # 印象是增值功能，任何失败都不影响主链路
-
-    async def refresh_impression_now(self, group_id: str, user_id: str, umo: str = "") -> str:
-        """立即刷新印象（指令/WebUI 手动触发），返回一句话结果。"""
-        if self._summarizer is None:
-            return "印象功能未启用"
-        return await self._refresh_impression_inner(group_id, user_id, umo)
-
-    async def _refresh_impression_inner(self, group_id: str, user_id: str, umo: str = "") -> str:
-        """收集流水 → 构造汇总提示 → 调 provider → 解析落库。"""
-        from astrbot.api import logger  # 延迟导入，保持 core 可测性
-
-        try:
-            rec = await self.get(group_id, user_id)
-            logs = await self._storage.query_logs(group_id, user_id, limit=20)
-            judged = [r for r in logs if r.get("source") == "judge"]
-            if not judged:
-                return "暂无评估记录，无法生成印象"
-            samples = [
-                f"{float(r.get('delta') or 0):+} {r.get('message') or ''} —— {r.get('reason') or ''}"
-                for r in reversed(judged)  # 时间正序（query_logs 是倒序）
-            ]
-            # 人格名与 provider 走 JudgeService 公共方法（解析当前会话人格，
-            # 失败回落 bot_name），与评审链路同源
-            persona_name = await self._summarizer.resolve_display_name(umo)
-            prompt = build_summary_prompt(
-                rec.nickname or user_id, rec.impression, samples, persona_name
-            )
-            provider = await self._summarizer.resolve_summary_provider()
-            if provider is None:
-                return "模型不可用，稍后再试"
-            resp = await provider.text_chat(prompt=prompt)
-            content = (getattr(resp, "completion_text", "") or "").strip()
-            parsed = parse_summary(content)
-            if parsed is None:
-                return "模型输出无法解析，保留原印象"
-            impression, llm_tags = parsed
-            # LLM 标签优先，确定性统计标签补充（去重、上限内）
-            extra = [t for t in stats_tags(logs) if t not in llm_tags]
-            tags = (llm_tags + extra)[:3]
-            await self._storage.set_impression(group_id, user_id, impression, tags)
-            logger.info(f"[心弦] {group_id}/{user_id} 印象已刷新: {impression}")
-            return f"已生成印象：{impression}" + (f"（标签：{'、'.join(tags)}）" if tags else "")
-        except Exception as e:
-            logger.warning(f"[心弦] 印象刷新失败（静默）: {e}")
-            return f"刷新失败: {e}"
-
-    async def set_tags(self, group_id: str, user_id: str, tags: list[str]) -> None:
-        """手动设置标签（指令入口）；印象本体由 AI 维护，这里只改标签。"""
-        rec = await self.get(group_id, user_id)
-        await self._storage.set_impression(
-            group_id, user_id, rec.impression, [t.strip()[:6] for t in tags if t.strip()][:3]
-        )
-
     # ---------- 增减 ----------
 
     async def apply_judge(
         self, group_id: str, user_id: str, delta: float, reason: str = "judge",
-        *, message: str = "", umo: str = "",
+        *, message: str = "",
     ) -> FavorChange:
         """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。
 
         先过防通胀经济学层（噪声地板 → 负面权重/阶段乘数 → 同日重复衰减），
         归零则不产生任何变动与流水。规则引擎/跨插件 API 不走该层。
         message: 触发本次评估的用户发言原文（截断 200 字入库，供 WebUI 核对是否误判）。
-        umo: 会话标识（透传给印象刷新，用于解析当前人格名）。
+        印象刷新由调用方（listeners）经 ImpressionService 触发。
         """
         if self._economy is not None:
             rec0 = await self.get(group_id, user_id)
@@ -387,8 +319,6 @@ class FavorService:
             reason=reason, source="judge",
             message=(message or "")[:200],
         )
-        if change.delta:
-            await self.maybe_refresh_impression(group_id, user_id, umo)
         return change
 
     async def _positive_judge_today(self, group_id: str, user_id: str) -> int:
@@ -515,6 +445,11 @@ class FavorService:
         self, group_id: str, user_id: str, value: float,
         source: str = "admin", reason: str = "set",
     ) -> FavorRecord:
+        """直接设定好感度（管理员/撤销用，绕过每日限幅，硬钳到值域）。
+
+        读 before → 写 value 的序列依赖存储后端无真实挂起点（见
+        base.py 原子性契约）；换真异步后端时须与 _apply_one 一并收进事务。
+        """
         before = await self.get(group_id, user_id)
         value = round1(max(self.min_favor, min(self.max_favor, float(value))))
         rec = await self._storage.set_value(group_id, user_id, value)
@@ -545,22 +480,19 @@ class FavorService:
     async def undo_log(self, log_id: int) -> FavorRecord:
         """撤销某条变动：反向 delta 落地（标准 undo，不影响之后的其它变动）。
 
-        原流水标记 reversed=1（防重复撤销），并追加一条 source=undo 的反向流水。
-        撤销一条 undo 行 = 重做原变动（对称）。
+        整个"校验未撤销→反向→记账→标记"在 storage.apply_undo 单事务内完成
+        （X4：拆开的检查-执行序列存在 TOCTOU，并发双击会双重反向扣分）。
+        原流水标记 reversed=1（防重复撤销），并追加一条 source=undo 的反向
+        流水；撤销一条 undo 行 = 重做原变动（对称）。撤销以衰减后的有效值
+        为基数（effective 回调传入存储层，语义与旧实现一致）。
         """
-        log = await self._storage.get_log(log_id)
-        if log is None:
-            raise ValueError("记录不存在")
-        if log.get("reversed"):
-            raise ValueError("该变动已撤销")
-        group_id, user_id = log["group_id"], log["user_id"]
-        cur = (await self.get(group_id, user_id)).favor
-        target = round1(cur - float(log["delta"]))
-        await self.set_favor(
-            group_id, user_id, target, source="undo", reason=f"撤销#{log_id}",
+        info = await self._storage.apply_undo(
+            log_id,
+            max_favor=self.max_favor, min_favor=self.min_favor,
+            effective=(self._effective if self._decay is not None else None),
+            default_favor=self.default_favor,
         )
-        await self._storage.mark_reversed(log_id)
-        return await self.get(group_id, user_id)
+        return await self.get(info["group_id"], info["user_id"])
 
     async def reset(self, group_id: str, user_id: str | None = None) -> None:
         await self._storage.reset(group_id, user_id)

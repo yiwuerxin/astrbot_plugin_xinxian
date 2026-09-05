@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 
 from astrbot.api import logger
@@ -28,8 +30,11 @@ from .core.identity import parse_master_ids
 from .core.judge_parse import DEFAULT_ATTITUDE_DELTAS
 from .core.level_economy import EconomyConfig
 from .core.levels import LevelTable
+from .core.naming import TIER_NAME_BY_KEY
 from .core.relationship import RelationshipTable
+from .core.taskregistry import TaskRegistry
 from .services.favor_service import FavorService
+from .services.impression_service import ImpressionService
 from .services.inject_service import InjectService
 from .services.judge_service import JudgeService
 from .storage.sqlite_backend import SQLiteBackend
@@ -50,7 +55,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.29.2",
+    "1.30.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -99,8 +104,8 @@ class XinxianPlugin(Star):
             max_favor=max_favor,
             min_favor=min_favor,
             default_favor=float(config.get("default_favor", 0)),
-            daily_cap_up=float(config.get("daily_cap_up", 15)),
-            daily_cap_down=float(config.get("daily_cap_down", 15)),
+            daily_cap_up=float(config.get("daily_cap_up", 4)),
+            daily_cap_down=float(config.get("daily_cap_down", 8)),
             master_ids=master_ids,
             decay_enabled=bool(decay_cfg.get("enabled", False)),
             half_life_base=float(decay_cfg.get("half_life_base", 10)),
@@ -110,24 +115,28 @@ class XinxianPlugin(Star):
             decay_floor_enabled=bool(decay_cfg.get("floor_enabled", True)),
             relationships=relationships,
             economy=eco,
-            impression_interval=int(impression_cfg.get("interval", 8)),
             tz_name=str(config.get("timezone", "") or ""),
         )
 
         judge_cfg = config.get("judge") or {}
         inject_cfg = config.get("inject") or {}
 
-        # 五档分值映射：配置键（拼音）→ 档位名（中文）
+        # 五档分值映射：配置键（拼音）→ 档位名（中文），映射表见 core/naming.py
         ad_raw = judge_cfg.get("attitude_deltas") or {}
-        _AD_KEYS = {"diyi": "敌意", "lengdan": "冷淡", "zhongxing": "中性", "youhao": "友好", "reqing": "热情"}
         attitude_deltas = {
             tier: float(ad_raw.get(key, DEFAULT_ATTITUDE_DELTAS[tier]))
-            for key, tier in _AD_KEYS.items()
+            for key, tier in TIER_NAME_BY_KEY.items()
         }
 
         template = (inject_cfg.get("template") or "").strip() or _read_resource(
             "resources/prompts/inject_template.txt"
         )
+        # X2：装配期校验自定义模板——未知占位符会让注入在每次 LLM 请求上
+        # 抛 KeyError（注入是必经路径），发现即报配置错误并回落默认模板
+        tpl_err = InjectService.validate_template(template)
+        if tpl_err:
+            logger.error(f"[心弦] inject.template 非法（{tpl_err}），已回落默认模板")
+            template = _read_resource("resources/prompts/inject_template.txt")
         anchor_enabled = bool(inject_cfg.get("persona_anchor_enabled", True))
         anchor_text = (inject_cfg.get("persona_anchor") or "").strip()
         persona_anchor = (
@@ -143,6 +152,7 @@ class XinxianPlugin(Star):
             relationships=relationships,
             persona_anchor=persona_anchor,
             master_prompt=(inject_cfg.get("master_prompt") or "").strip(),
+            anti_injection=bool(inject_cfg.get("anti_injection", True)),
         )
         self._judge = JudgeService(
             context,
@@ -163,11 +173,28 @@ class XinxianPlugin(Star):
             bot_name=(judge_cfg.get("bot_name") or "").strip() or "小千",
             attitude_deltas=attitude_deltas,
             roster=(judge_cfg.get("roster") or "").strip(),
+            timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
         )
+
+        # 后台任务注册表（X10）：评审/印象/延迟清理统一持引用，卸载时
+        # cancel_and_wait_all 后再关存储
+        self._registry = TaskRegistry()
+        # 印象服务独立于好感度门面（借 JudgeService 的 provider/人格解析做汇总）
+        self._impressions = ImpressionService(
+            self._storage,
+            interval=int(impression_cfg.get("interval", 8)),
+            timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
+            registry=self._registry,
+            points_mode=bool(impression_cfg.get("points_mode", False)),
+        )
+        self._impressions.bind_summarizer(self._judge)
+
         self._deps = Deps(
             favor=self._favor,
             judge=self._judge,
             inject=self._inject,
+            impressions=self._impressions,
+            registry=self._registry,
             inject_enabled=bool(inject_cfg.get("enabled", True)),
             memory_count=int(inject_cfg.get("memory_count", 3)),
             memory_days=int(inject_cfg.get("memory_days", 7)),
@@ -182,15 +209,12 @@ class XinxianPlugin(Star):
         self._render_font = (render_cfg.get("font_path") or "").strip()
         self._render_rows = int(render_cfg.get("rows_per_col", 12))
 
-        # 印象汇总借用 JudgeService 的 provider 解析（模型/人格与评审同源）
-        self._favor.bind_summarizer(self._judge)
-
         # 跨插件 API：context.get_registered_star("astrbot_plugin_xinxian").star_cls.api
         self.api = XinxianFacade(self._favor)
 
         # 原生 dashboard 页面 API（框架支持时注册，内嵌于主面板，无独立端口/鉴权）
         from .api.page_api import PageApi
-        self._page_api = PageApi(self._favor, self._storage)
+        self._page_api = PageApi(self._favor, self._impressions)
         self._page_api.register(context)
 
     async def initialize(self) -> None:
@@ -198,6 +222,8 @@ class XinxianPlugin(Star):
         logger.info("[心弦] 好感度插件已加载")
 
     async def terminate(self) -> None:
+        # X10：先取消并等待在飞任务（评审/印象刷新/延迟清理），再关存储
+        await self._registry.cancel_and_wait_all(timeout=5.0)
         await self._storage.close()
         logger.info("[心弦] 好感度插件已卸载")
 
@@ -216,7 +242,10 @@ class XinxianPlugin(Star):
             if reply is not None:
                 kind, payload = reply
                 if kind == "image":
-                    yield event.image_result(payload)
+                    try:
+                        yield event.image_result(payload)
+                    finally:
+                        self._schedule_tmp_cleanup(payload)
                 else:  # 未安装 Pillow：降级文字排行
                     yield event.plain_result(payload)
         await on_group_message(self._deps, event)
@@ -237,9 +266,25 @@ class XinxianPlugin(Star):
             text_limit=self._ranking_limit,
         )
         if kind == "image":
-            yield event.image_result(payload)
+            try:
+                yield event.image_result(payload)
+            finally:
+                self._schedule_tmp_cleanup(payload)
         else:
             yield event.plain_result(payload)
+
+    def _schedule_tmp_cleanup(self, path: str, delay: float = 5.0) -> None:
+        """排行图临时 PNG 延迟删除（X8）：yield 恢复即已发出，留几秒兜底
+        平台侧异步读取，经注册表发起防裸任务。"""
+
+        async def _rm():
+            await asyncio.sleep(delay)
+            try:
+                os.unlink(path)
+            except OSError:
+                pass  # 已被清理或平台侧占用失败都无碍（渲染前还有兜底清扫）
+
+        self._registry.spawn(_rm(), name="rank_tmp_cleanup")
 
     @filter.command("好感设置")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -265,13 +310,15 @@ class XinxianPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def _cmd_set_tags(self, event: AstrMessageEvent, target: str = "", tags: str = ""):
         """设置成员标签（管理员）。用法：/印象设置 QQ号 标签1,标签2"""
-        yield event.plain_result(await cmd.handle_set_tags(self._favor, event, target, tags))
+        yield event.plain_result(
+            await cmd.handle_set_tags(self._impressions, event, target, tags)
+        )
 
     @filter.command("印象刷新")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def _cmd_refresh_imp(self, event: AstrMessageEvent, target: str = ""):
         """立即刷新成员印象（管理员）。用法：/印象刷新 QQ号"""
-        yield event.plain_result(await cmd.handle_refresh_impression(self._favor, event, target))
+        yield event.plain_result(await cmd.handle_refresh_impression(self._impressions, event, target))
 
     # ---------------- LLM 工具 ----------------
 

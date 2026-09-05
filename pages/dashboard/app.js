@@ -75,7 +75,7 @@ createApp({
     const openUndo = async (r) => {
       errorMsg.value = "";
       try {
-        const data = await bridge.apiGet("undo", { id: r.id, dry: "1" });
+        const data = await bridge.apiPost("undo", { id: r.id, dry: "1" });
         if (data && data.success === false) {
           errorMsg.value = data.error || "无法撤销";
           return;
@@ -92,7 +92,7 @@ createApp({
       if (id == null) return;
       errorMsg.value = "";
       try {
-        const data = await bridge.apiGet("undo", { id });
+        const data = await bridge.apiPost("undo", { id });
         if (data && data.success === false) {
           errorMsg.value = data.error || "撤销失败";
         } else {
@@ -133,7 +133,7 @@ createApp({
       errorMsg.value = "";
       memberLoading.value = true;
       try {
-        const data = await bridge.apiGet("refresh_impression", { group_id: m.group_id, user_id: m.user_id });
+        const data = await bridge.apiPost("refresh_impression", { group_id: m.group_id, user_id: m.user_id });
         if (data && data.success === false) {
           errorMsg.value = data.error || data.message || "刷新失败";
         } else {
@@ -163,7 +163,8 @@ createApp({
         const params = { limit: filterLimit.value };
         if (filterGroup.value) params.group_id = filterGroup.value;
         const u = filterUser.value.trim();
-        if (u) params.user_id = u;
+        // 搜索框保持子串匹配体验（后端默认精确匹配，仅此处显式开启模糊）
+        if (u) { params.user_id = u; params.fuzzy = "1"; }
         const data = await bridge.apiGet("logs", params);
         if (data && data.success === false) {
           errorMsg.value = data.error || "加载失败";
