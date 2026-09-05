@@ -1160,6 +1160,27 @@ class TestImpressionPoints:
         rec = asyncio.run(b.get("g", "u"))
         assert rec.favor == 5.5 and rec.parsed_points() == []  # 新列默认空
 
+    def test_service_query_logs_passthrough(self, tmp_path):
+        # Sourcery 回归：面板 /logs 走 FavorService.query_logs——签名须带 offset/fuzzy
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        for i in range(3):
+            asyncio.run(svc.change("g", f"u{i}", 1, source="api"))
+        rows = asyncio.run(svc.query_logs("g", "u1", limit=10, offset=0, fuzzy=False))
+        assert [r["user_id"] for r in rows] == ["u1"]  # 精确默认不混 u0/u10
+        all_rows = asyncio.run(svc.query_logs("g", "u", limit=10, fuzzy=True))
+        assert len(all_rows) == 3  # 模糊可选
+
+    def test_storage_set_profile_atomic(self, tmp_path):
+        # Sourcery 回归：点集/印象/标签一次 upsert 写入
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        asyncio.run(b.set_value("g", "u", 5))
+        asyncio.run(b.set_profile("g", "u", "嘴硬心软", ["毒舌"],
+                                  [{"point": "爱抬杠", "weight": 7, "ts": 1.0}]))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.impression == "嘴硬心软" and rec.parsed_tags() == ["毒舌"]
+        assert rec.parsed_points() == [{"point": "爱抬杠", "weight": 7, "ts": 1.0}]
+
     def test_service_points_mode_offline(self, tmp_path):
         # points_mode 关闭：走 legacy 一句话路径（既有行为不变）
         from astrbot_plugin_xinxian.services.impression_service import ImpressionService

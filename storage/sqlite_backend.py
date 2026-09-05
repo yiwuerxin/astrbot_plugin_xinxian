@@ -151,6 +151,17 @@ class SQLiteBackend(StorageBackend):
             self._upsert(group_id, user_id, {
                 "points": _json.dumps(list(points or []), ensure_ascii=False)})
 
+    async def set_profile(self, group_id: str, user_id: str, impression: str,
+                          tags: list[str], points: list[dict]) -> None:
+        """一次 upsert 同步写 印象/标签/点集（Sourcery：分两次写会在第二步
+        失败时留下"点已并、印象仍旧"的不一致，重试再并一次会膨胀权重）。"""
+        import json as _json
+        with self._lock:
+            self._upsert(group_id, user_id, {
+                "impression": (impression or "").strip(),
+                "tags": _json.dumps(list(tags or []), ensure_ascii=False),
+                "points": _json.dumps(list(points or []), ensure_ascii=False)})
+
     async def set_impression(
         self, group_id: str, user_id: str, impression: str, tags: list[str]
     ) -> None:

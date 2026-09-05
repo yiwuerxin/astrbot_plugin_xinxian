@@ -219,9 +219,13 @@ class FavorService:
         """有记录的群列表（面板群筛选用；storage 透传，X7 面板不直拿存储）。"""
         return await self._storage.distinct_groups()
 
-    async def query_logs(self, group_id: str, user_id: str, limit: int = 20) -> list[dict]:
-        """流水查询透传（注入链路一次拉取，milestone/recent_events 共用）。"""
-        return await self._storage.query_logs(group_id, user_id, limit=limit)
+    async def query_logs(self, group_id: str, user_id: str, limit: int = 20,
+                         offset: int = 0, fuzzy: bool = False) -> list[dict]:
+        """流水查询透传（注入链路一次拉取，milestone/recent_events 共用）。
+
+        fuzzy=True 仅供面板搜索（子串匹配）；内部路径一律精确。"""
+        return await self._storage.query_logs(
+            group_id, user_id, limit=limit, offset=offset, fuzzy=fuzzy)
 
     async def recent_events(
         self, group_id: str, user_id: str, count: int = 3, days: int = 7,

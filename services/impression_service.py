@@ -160,15 +160,14 @@ class ImpressionService:
             merged = merge_points(existing, new_pts)
             kept, dropped = retain(merged, now)
             impression = render_impression(kept)
-            if dropped and old_impression:
-                # 挤出项并入长印象（带时间戳的轨迹，≤200 字）
+            if dropped:
+                # 挤出项并入长印象（Sourcery：不得以旧印象为空为由丢弃挤出点）
+                prefix = (old_impression + "；") if old_impression else ""
                 tail = "；较早印象：" + "；".join(d["point"] for d in dropped)
-                impression = (impression + tail)[:200]
-            await self._storage.set_points(group_id, user_id, kept)
-            await self._storage.set_impression(
-                group_id, user_id, impression,
-                (await self._storage.get(group_id, user_id)).parsed_tags()
-                if rec else [])
+                impression = (prefix + impression + tail)[:200]
+            # 原子档案更新：点集/印象/标签一次写入（失败即整体不生效，可安全重试）
+            old_tags = rec.parsed_tags() if rec else []
+            await self._storage.set_profile(group_id, user_id, impression, old_tags, kept)
             logger.info(f"[心弦] {group_id}/{user_id} 印象点已刷新: "
                         f"{len(kept)} 点（挤出 {len(dropped)}）")
             return True, f"已生成印象：{impression}"

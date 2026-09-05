@@ -69,6 +69,11 @@ class StorageBackend(ABC):
         """写入印象点集（P-C 带权点模型；不改好感数值）。"""
 
     @abstractmethod
+    async def set_profile(self, group_id: str, user_id: str, impression: str,
+                          tags: list[str], points: list[dict]) -> None:
+        """一次写入印象+标签+点集（P-C 原子档案更新；不改好感数值）。"""
+
+    @abstractmethod
     async def set_impression(
         self, group_id: str, user_id: str, impression: str, tags: list[str]
     ) -> None:
