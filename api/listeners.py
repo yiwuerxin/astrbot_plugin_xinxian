@@ -16,6 +16,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
 from ..core.decimal import fmt
+from ..core.sanitize import sanitize_text
 from ..core.taskregistry import TaskRegistry
 from ..services.favor_service import FavorService
 from ..services.impression_service import ImpressionService
@@ -81,7 +82,8 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         _nick = event.get_sender_name()
     except Exception:
         _nick = None
-    text = event.message_str or ""
+    # P-F：引用前缀/转发占位不冒充发言人本人，清洗后再进评审
+    text = sanitize_text(event.message_str or "")
     has_at_bot, is_reply_bot = _chain_flags(event)
 
     async def _bg() -> None:

@@ -152,6 +152,7 @@ class XinxianPlugin(Star):
             relationships=relationships,
             persona_anchor=persona_anchor,
             master_prompt=(inject_cfg.get("master_prompt") or "").strip(),
+            anti_injection=bool(inject_cfg.get("anti_injection", True)),
         )
         self._judge = JudgeService(
             context,

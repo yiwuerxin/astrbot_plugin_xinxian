@@ -13,6 +13,7 @@ from ..core.decimal import fmt
 from ..core.levels import LevelTable
 from ..core.models import FavorRecord
 from ..core.relationship import RelationshipTable
+from ..core.sanitize import ANTI_INJECTION_LINES
 
 
 # 主人身份的默认注入提示：身份恒定 + 好感照常涨跌（不豁免）；具体语气
@@ -43,6 +44,7 @@ class InjectService:
         relationships: RelationshipTable | None = None,
         persona_anchor: str = "",
         master_prompt: str = "",
+        anti_injection: bool = True,
     ) -> None:
         self._levels = levels
         self._template = template
@@ -50,6 +52,7 @@ class InjectService:
         self._max_favor = max_favor
         self._relationships = relationships
         self._persona_anchor = persona_anchor
+        self._anti_injection = anti_injection  # P-F：注入块防注入声明
         # 主人提示：留空用默认；用 replace 替换 {master_title}，避免用户自定义文本
         # 里其他花括号被 .format 误解析。
         self._master_tpl = (master_prompt or "").strip() or DEFAULT_MASTER_PROMPT
@@ -127,6 +130,8 @@ class InjectService:
             impression=impression_block,
             milestone=milestone_block,
         )
+        if self._anti_injection:
+            block += ANTI_INJECTION_LINES  # P-F：档案块自带防注入声明
         if self._persona_anchor:
             block += "\n" + self._persona_anchor
         return block

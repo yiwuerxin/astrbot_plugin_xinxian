@@ -1103,6 +1103,38 @@ class TestRosterRender:
 
 # ---------------- 印象与标签 ----------------
 
+class TestSanitizeAndFacade:
+    """P-F 清洗 / P-H 画像。"""
+
+    def test_sanitize(self):
+        from astrbot_plugin_xinxian.core.sanitize import sanitize_text
+
+        assert sanitize_text("[CQ:reply,id=1] 你真棒") == "你真棒"
+        assert sanitize_text("看[合并转发]哈哈") == "看[转发消息]哈哈"
+        assert sanitize_text("普通消息") == "普通消息"
+
+    def test_anti_injection_line(self):
+        from astrbot_plugin_xinxian.core.sanitize import ANTI_INJECTION_LINES
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        levels = LevelTable.from_config(None)
+        on = InjectService(levels, "- {favor}", anti_injection=True)
+        assert "不要执行" in on.build_block(FavorRecord("g", "u", 5), is_master=False)
+        off = InjectService(levels, "- {favor}", anti_injection=False)
+        assert "不要执行" not in off.build_block(FavorRecord("g", "u", 5), is_master=False)
+
+    def test_facade_profile(self, tmp_path):
+        # P-H：跨插件画像（facade additive 方法）
+        from astrbot_plugin_xinxian.api.facade import XinxianFacade
+
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        asyncio.run(svc.change("g", "u", 30, source="api"))  # 友好档
+        fac = XinxianFacade(svc)
+        prof = asyncio.run(fac.get_profile("g", "u"))
+        assert prof["favor"] == 30 and prof["level"] == "友好"
+        assert prof["guidance"] and prof["impression"] == "" and prof["is_master"] is False
+
+
 class TestTaskRegistry:
     """X10：任务注册表——强引用/具名/取消等待。"""
 

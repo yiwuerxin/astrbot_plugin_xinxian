@@ -77,3 +77,23 @@ class XinxianFacade:
         """设定关系类型标签，返回展示名。不影响好感度数值。"""
         await self._favor.set_relationship(group_id, user_id, key)
         return self._favor.relationship_label(key)
+
+    async def get_profile(self, group_id: str, user_id: str) -> dict:
+        """完整好感画像（P-H 跨插件联动，maisoul 等渲染进系统提示词用）。
+
+        Returns:
+            {"favor", "level", "guidance", "impression", "tags",
+             "relationship", "is_master"}
+        """
+        rec = await self._favor.get(group_id, user_id)
+        lv = self._favor.level_of(rec.favor)
+        return {
+            "favor": rec.favor,
+            "level": lv.name,
+            "guidance": lv.guidance,
+            "impression": (rec.impression or "").strip(),
+            "tags": rec.parsed_tags(),
+            "relationship": (self._favor.relationship_label(rec.relationship)
+                             if rec.relationship else ""),
+            "is_master": self._favor.is_master(user_id),
+        }

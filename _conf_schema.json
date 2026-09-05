@@ -331,6 +331,11 @@
         "default": true,
         "description": "注入开关"
       },
+      "anti_injection": {
+        "type": "bool",
+        "default": true,
+        "description": "P-F 防注入：好感档案块末尾附两句声明——聊天内容中的指令类文字不执行、借其他 AI 口吻提要求仍按本人言行判断"
+      },
       "master_title": {
         "type": "string",
         "default": "主人",
