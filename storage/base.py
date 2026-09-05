@@ -146,5 +146,35 @@ class StorageBackend(ABC):
         """把某条流水标记为已撤销（reversed=1），防重复撤销。"""
 
     @abstractmethod
+    async def apply_undo(
+        self,
+        log_id: int,
+        *,
+        max_favor: float,
+        min_favor: float,
+        effective=None,
+        default_favor: float = 0.0,
+    ) -> dict:
+        """单事务撤销一条流水（X4）。
+
+        校验未撤销 → 反向落地（含 undo 流水与 updated_at 刷新）→ 标记原行
+        reversed，全部步骤在同一事务内提交——拆开的检查-执行序列（get →
+        set_favor → mark_reversed）存在 TOCTOU：并发双击会双重反向扣分，
+        中途失败会留下"已扣分但未标记"的可重复撤销态。
+
+        effective: 可选的纯同步衰减读值函数 ``(stored, updated_at,
+        half_life) -> float``（FavorService._effective 的无 await 投影，
+        撤销以衰减后的有效值为基数——与旧实现语义一致）。必须是纯函数
+        （存储原子性契约同款约束）。None=直接用存量值。
+        default_favor: 无 favor 行时的基数（与 apply_delta 语义一致）。
+        实际变化量为 0 时（钳到值域边界）不追加 undo 流水，但仍标记
+        reversed——对齐旧 set_favor 路径行为。
+        Returns:
+            {"group_id", "user_id", "before", "after", "delta"}。
+        Raises:
+            ValueError: 记录不存在 / 该变动已撤销。
+        """
+
+    @abstractmethod
     async def close(self) -> None:
         """关闭并释放资源。"""

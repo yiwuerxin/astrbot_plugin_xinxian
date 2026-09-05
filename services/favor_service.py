@@ -472,23 +472,19 @@ class FavorService:
     async def undo_log(self, log_id: int) -> FavorRecord:
         """撤销某条变动：反向 delta 落地（标准 undo，不影响之后的其它变动）。
 
-        原流水标记 reversed=1（防重复撤销），并追加一条 source=undo 的反向流水。
-        撤销一条 undo 行 = 重做原变动（对称）。读当前值 → 反向落地同样是
-        依赖无挂起点的读-改-写（见 base.py 原子性契约）。
+        整个"校验未撤销→反向→记账→标记"在 storage.apply_undo 单事务内完成
+        （X4：拆开的检查-执行序列存在 TOCTOU，并发双击会双重反向扣分）。
+        原流水标记 reversed=1（防重复撤销），并追加一条 source=undo 的反向
+        流水；撤销一条 undo 行 = 重做原变动（对称）。撤销以衰减后的有效值
+        为基数（effective 回调传入存储层，语义与旧实现一致）。
         """
-        log = await self._storage.get_log(log_id)
-        if log is None:
-            raise ValueError("记录不存在")
-        if log.get("reversed"):
-            raise ValueError("该变动已撤销")
-        group_id, user_id = log["group_id"], log["user_id"]
-        cur = (await self.get(group_id, user_id)).favor
-        target = round1(cur - float(log["delta"]))
-        await self.set_favor(
-            group_id, user_id, target, source="undo", reason=f"撤销#{log_id}",
+        info = await self._storage.apply_undo(
+            log_id,
+            max_favor=self.max_favor, min_favor=self.min_favor,
+            effective=(self._effective if self._decay is not None else None),
+            default_favor=self.default_favor,
         )
-        await self._storage.mark_reversed(log_id)
-        return await self.get(group_id, user_id)
+        return await self.get(info["group_id"], info["user_id"])
 
     async def reset(self, group_id: str, user_id: str | None = None) -> None:
         await self._storage.reset(group_id, user_id)

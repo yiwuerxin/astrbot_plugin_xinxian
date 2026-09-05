@@ -344,6 +344,67 @@ class SQLiteBackend(StorageBackend):
             )
             self._c().commit()
 
+    async def apply_undo(
+        self,
+        log_id: int,
+        *,
+        max_favor: float,
+        min_favor: float,
+        effective=None,
+        default_favor: float = 0.0,
+    ) -> dict:
+        """单事务撤销（契约见 base.py）：校验→反向→流水→标记，一个 commit。"""
+        now = time.time()
+        with self._lock:
+            conn = self._c()
+            try:
+                conn.execute("BEGIN")
+                row = conn.execute(
+                    "SELECT group_id, user_id, delta, reversed FROM favor_log WHERE id=?",
+                    (int(log_id),),
+                ).fetchone()
+                if row is None:
+                    raise ValueError("记录不存在")
+                if row[3]:
+                    raise ValueError("该变动已撤销")
+                group_id, user_id, delta = row[0], row[1], float(row[2])
+                frow = conn.execute(
+                    "SELECT favor, updated_at, half_life FROM favor "
+                    "WHERE group_id=? AND user_id=?",
+                    (group_id, user_id),
+                ).fetchone()
+                if frow:
+                    stored, ts, h = float(frow[0]), frow[1], float(frow[2] or 10.0)
+                else:
+                    stored, ts, h = float(default_favor or 0.0), 0.0, 10.0
+                cur = effective(stored, ts, h) if effective else round1(stored)
+                target = round1(max(min_favor, min(max_favor, round1(cur - delta))))
+                real = round1(target - cur)
+                conn.execute(
+                    "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES(?,?,?,?) "
+                    "ON CONFLICT(group_id, user_id) DO UPDATE SET "
+                    "favor=excluded.favor, updated_at=excluded.updated_at",
+                    (group_id, user_id, target, now),
+                )
+                if real != 0:
+                    conn.execute(
+                        "INSERT INTO favor_log(group_id, user_id, delta, favor_before, "
+                        "favor_after, reason, source, ts) VALUES(?,?,?,?,?,?,?,?)",
+                        (group_id, user_id, real, round1(cur), target,
+                         f"撤销#{int(log_id)}", "undo", now),
+                    )
+                conn.execute(
+                    "UPDATE favor_log SET reversed=1 WHERE id=?", (int(log_id),)
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {
+            "group_id": group_id, "user_id": user_id,
+            "before": round1(cur), "after": target, "delta": real,
+        }
+
     async def close(self) -> None:
         with self._lock:
             if self._conn is not None:

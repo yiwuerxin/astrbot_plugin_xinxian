@@ -564,6 +564,45 @@ class TestFavorService:
         with pytest.raises(ValueError):
             asyncio.run(svc.undo_log(999))
 
+    def test_undo_single_transaction_semantics(self, tmp_path):
+        # X4：撤销走 storage.apply_undo 单事务——effective 回调（衰减读值投影）
+        # 被采纳、undo 流水带 撤销#id 理由、原行 reversed 同事务落定、
+        # 钳到边界 real=0 时不追加零流水但照样标记
+        svc = _make_service(tmp_path, max_favor=100, min_favor=-100)
+        asyncio.run(svc.change("g", "u", 5, source="api"))
+        log_id = asyncio.run(svc._storage.query_logs("g", "u"))[0]["id"]
+        seen: list[float] = []
+
+        def eff(stored, ts, h):
+            seen.append(stored)
+            return stored - 2.0  # 模拟两天衰减读值（纯函数投影）
+
+        info = asyncio.run(svc._storage.apply_undo(
+            log_id, max_favor=100, min_favor=-100, effective=eff))
+        assert seen == [5.0] and info["before"] == 3.0
+        # 撤销 +5 的流水：有效值 3 − 5 = −2，实际变动 −5
+        assert info["after"] == -2.0 and info["delta"] == -5.0
+        rows = asyncio.run(svc._storage.query_logs("g", "u"))
+        assert rows[0]["source"] == "undo" and rows[0]["reason"] == f"撤销#{log_id}"
+        assert rows[0]["reversed"] is False and rows[1]["reversed"] is True
+        # 钳边界：把行设到 max，撤销一条 -5（反向 +5 已无处可去）→ 不追加零流水
+        asyncio.run(svc.set_favor("g", "u", 100))
+        neg_id = None
+        with svc._storage._lock:
+            svc._storage._c().execute(
+                "INSERT INTO favor_log(group_id,user_id,delta,favor_before,"
+                "favor_after,reason,source,ts) VALUES('g','u',-5,105,100,'r','api',1)")
+            svc._storage._c().commit()
+            neg_id = svc._storage._c().execute(
+                "SELECT last_insert_rowid()").fetchone()[0]
+        before_count = len(asyncio.run(svc._storage.query_logs("g", "u")))
+        info2 = asyncio.run(svc._storage.apply_undo(
+            neg_id, max_favor=100, min_favor=-100))
+        assert info2["delta"] == 0.0 and info2["after"] == 100.0
+        after_rows = asyncio.run(svc._storage.query_logs("g", "u"))
+        assert len(after_rows) == before_count  # 零流水未追加
+        orig = next(r for r in after_rows if r["id"] == neg_id)
+        assert orig["reversed"] is True  # 但原行已标记
     def test_undo_already_reversed(self, tmp_path):
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 5, source="api"))
