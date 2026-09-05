@@ -75,7 +75,7 @@ Strict one-way layering: `main.py` → `api/` → `services/` → `core/` + `sto
 1. Branch from `main` using the repo's convention: `feat/<scope>-<topic>` / `fix/<topic>` / `chore/<topic>` (see history: `feat/webui-chisaki-theme`, `fix/undo-get-modal`).
 2. Make changes, run `pytest tests/ -q` (must stay green), commit with conventional-style Chinese summaries (`feat(webui): …`, `fix(inject): …`).
 3. Push the branch and open a PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …"), then **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait.
-4. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`), keeping the `@register(...)` string in `main.py` in sync (both read `1.29.3`).
+4. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`), keeping the `@register(...)` string in `main.py` in sync (both read `1.30.0`).
 
 Host-specific details — working-copy/production directory layout, deploy procedure, credentials location, network quirks, and the current pending-deploy state — live in **`CLAUDE.local.md`**, which is gitignored. **Never commit that file or anything from it.**
 
@@ -161,6 +161,7 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 | 1.29.0 | #55 | economy feel presets `default/galgame/realistic`（preset 垫底、显式参数覆盖） |
 | 1.29.1 | #56 | fix: restore the missing `await` on `recent_events` (injection chain silently dead) |
 | 1.29.2 | #57 | fix: migrate stale `master_guidance` defaults on saved configs (literal-match old defaults only) |
+| 1.30.0 | — | GOAL 加固批次：X1 流水精确匹配（fuzzy 仅 WebUI）；X2 注入链路防护+模板装配期校验；X3 LLM 超时（judge.timeout_sec）；X4 撤销单事务（apply_undo）；X7 面板经服务+undo/refresh 改 POST；X8 排行图 to_thread+临时图延迟清理；X9 重读线程池；X10 TaskRegistry；P-F 评审清洗+防注入声明；P-C 带权印象点（schema v9，默认关）；P-H facade.get_profile |
 | 1.29.3 | #58 | refactor: `ImpressionService` split out of FavorService; pinyin maps → `core/naming.py`, tier anchors single-sourced; SQLite upserts merged (`touch` preserves decay-anchor semantics); fixes: cap fallback defaults aligned to schema (4/8), rank-image temp PNG cleanup, nickname cache cap, structured impression-refresh result; decay-floor docstring corrected (two levels) |
 | — | #37 | docs sync: README 目录/测试数对齐，CLAUDE 版本历史与待办 |
 
