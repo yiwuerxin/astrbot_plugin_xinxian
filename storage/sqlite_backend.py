@@ -270,7 +270,7 @@ class SQLiteBackend(StorageBackend):
             self._c().commit()
 
     async def query_logs(
-        self, group_id=None, user_id=None, limit=200, offset=0
+        self, group_id=None, user_id=None, limit=200, offset=0, fuzzy=False
     ) -> list[dict]:
         sql = (
             "SELECT id, group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message, reversed "
@@ -282,8 +282,15 @@ class SQLiteBackend(StorageBackend):
             where.append("group_id = ?")
             args.append(group_id)
         if user_id:
-            where.append("user_id LIKE ?")
-            args.append(f"%{user_id}%")
+            # X1：默认精确匹配——内部路径（衰减计数/修复期/记忆注入）语义
+            # 要求精确，LIKE 前导通配会把互为子串的 QQ 混进来；fuzzy 仅
+            # 供 WebUI 搜索显式开启（该路径 LIKE 无法走索引，属已知代价）
+            if fuzzy:
+                where.append("user_id LIKE ?")
+                args.append(f"%{user_id}%")
+            else:
+                where.append("user_id = ?")
+                args.append(user_id)
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?"

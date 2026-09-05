@@ -163,7 +163,8 @@ createApp({
         const params = { limit: filterLimit.value };
         if (filterGroup.value) params.group_id = filterGroup.value;
         const u = filterUser.value.trim();
-        if (u) params.user_id = u;
+        // 搜索框保持子串匹配体验（后端默认精确匹配，仅此处显式开启模糊）
+        if (u) { params.user_id = u; params.fuzzy = "1"; }
         const data = await bridge.apiGet("logs", params);
         if (data && data.success === false) {
           errorMsg.value = data.error || "加载失败";

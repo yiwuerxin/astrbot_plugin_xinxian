@@ -462,8 +462,24 @@ class TestFavorService:
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "123456", 1, source="api"))
         asyncio.run(svc.change("g1", "654321", 1, source="api"))
-        rows = asyncio.run(svc._storage.query_logs("g1", "123"))  # 模糊匹配
+        # X1：默认精确匹配（内部路径——同日衰减/修复期/近期印象/印象汇总/
+        # 里程碑/成员详情全部语义要求精确，LIKE '%..%' 会让 QQ 互为子串时
+        # 把别人的流水算进本人记忆）；模糊仅 WebUI 搜索显式 fuzzy=True
+        rows = asyncio.run(svc._storage.query_logs("g1", "123456"))
         assert [r["user_id"] for r in rows] == ["123456"]
+        fuzzy = asyncio.run(svc._storage.query_logs("g1", "123", fuzzy=True))
+        assert [r["user_id"] for r in fuzzy] == ["123456"]
+
+    def test_logs_exact_no_cross_user_pollution(self, tmp_path):
+        # X1 回归：QQ 123456 是 1234567 的子串——精确路径不得串数据
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        asyncio.run(svc.change("g1", "1234567", 1, source="api"))
+        asyncio.run(svc.change("g1", "123456", 1, source="api"))
+        rows = asyncio.run(svc._storage.query_logs("g1", "1234567"))
+        assert [r["user_id"] for r in rows] == ["1234567"]
+        # 服务层内部读（recent_events 默认查询）同样不得混入他人流水
+        events = asyncio.run(svc.recent_events("g1", "1234567", 3, 7))
+        assert events and all(r["user_id"] == "1234567" for r in events)
 
     def test_distinct_groups(self, tmp_path):
         svc = _make_service(tmp_path)

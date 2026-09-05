@@ -39,13 +39,17 @@ class PageApi:
     # ---------------- handlers ----------------
 
     async def handle_logs(self):
-        """变动流水：?group_id=&user_id=&limit=&offset=，按时间倒序。"""
+        """变动流水：?group_id=&user_id=&limit=&offset=&fuzzy=1，按时间倒序。
+
+        fuzzy=1 时 user_id 子串匹配（WebUI 搜索框用）；默认精确。
+        """
         try:
             group_id = (request.args.get("group_id") or "").strip() or None
             user_id = (request.args.get("user_id") or "").strip() or None
+            fuzzy = (request.args.get("fuzzy") or "").strip() == "1"
             limit = max(1, min(int(request.args.get("limit", 300)), 1000))
             offset = max(0, int(request.args.get("offset", 0)))
-            logs = await self._storage.query_logs(group_id, user_id, limit, offset)
+            logs = await self._storage.query_logs(group_id, user_id, limit, offset, fuzzy=fuzzy)
             return jsonify({"success": True, "logs": logs, "count": len(logs)})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
