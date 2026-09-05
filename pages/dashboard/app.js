@@ -75,7 +75,7 @@ createApp({
     const openUndo = async (r) => {
       errorMsg.value = "";
       try {
-        const data = await bridge.apiGet("undo", { id: r.id, dry: "1" });
+        const data = await bridge.apiPost("undo", { id: r.id, dry: "1" });
         if (data && data.success === false) {
           errorMsg.value = data.error || "无法撤销";
           return;
@@ -92,7 +92,7 @@ createApp({
       if (id == null) return;
       errorMsg.value = "";
       try {
-        const data = await bridge.apiGet("undo", { id });
+        const data = await bridge.apiPost("undo", { id });
         if (data && data.success === false) {
           errorMsg.value = data.error || "撤销失败";
         } else {
@@ -133,7 +133,7 @@ createApp({
       errorMsg.value = "";
       memberLoading.value = true;
       try {
-        const data = await bridge.apiGet("refresh_impression", { group_id: m.group_id, user_id: m.user_id });
+        const data = await bridge.apiPost("refresh_impression", { group_id: m.group_id, user_id: m.user_id });
         if (data && data.success === false) {
           errorMsg.value = data.error || data.message || "刷新失败";
         } else {

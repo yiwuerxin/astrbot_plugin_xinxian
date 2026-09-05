@@ -1103,6 +1103,46 @@ class TestRosterRender:
 
 # ---------------- 印象与标签 ----------------
 
+class TestTaskRegistry:
+    """X10：任务注册表——强引用/具名/取消等待。"""
+
+    def test_spawn_and_cancel(self):
+        import asyncio
+        from astrbot_plugin_xinxian.core.taskregistry import TaskRegistry
+
+        reg = TaskRegistry()
+
+        async def _ok():
+            await asyncio.sleep(0.01)
+            return 3
+
+        async def _hang():
+            await asyncio.sleep(30)
+
+        async def _scenario():
+            t = reg.spawn(_ok(), name="ok")
+            assert await t == 3
+            await asyncio.sleep(0)
+            assert reg.size == 0  # 完成自动移除
+            h = reg.spawn(_hang(), name="hang")
+            await reg.cancel_and_wait_all(timeout=2.0)
+            return h.cancelled()
+
+        assert asyncio.run(_scenario()) is True
+        asyncio.run(TaskRegistry().cancel_and_wait_all())  # 幂等
+
+    def test_heavy_reads_off_loop(self, tmp_path):
+        # X9：to_thread 读路径与直写语义一致（同一把锁互斥）
+        svc = _make_service(tmp_path, daily_cap_up=200)
+        asyncio.run(svc.change("g", "u", 1, source="api"))
+        rows = asyncio.run(svc._storage.list_favor("g"))
+        assert rows and rows[0].favor == 1.0
+        logs = asyncio.run(svc._storage.query_logs("g", "u"))
+        assert logs and logs[0]["delta"] == 1.0
+        groups = asyncio.run(svc._storage.distinct_groups())
+        assert groups == [{"group_id": "g", "count": 1}]
+
+
 class TestImpression:
     def setup_method(self):
         from astrbot_plugin_xinxian.core.impression import (

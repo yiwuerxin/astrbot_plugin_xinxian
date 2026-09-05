@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -154,6 +155,10 @@ class SQLiteBackend(StorageBackend):
             })
 
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
+        # X9：重读走线程池（不再阻塞主线程的回复）
+        return await asyncio.to_thread(self._ranking_sync, group_id, limit)
+
+    def _ranking_sync(self, group_id: str, limit: int) -> list[FavorRecord]:
         with self._lock:
             rows = self._c().execute(
                 "SELECT user_id, favor, updated_at FROM favor "
@@ -163,6 +168,9 @@ class SQLiteBackend(StorageBackend):
         return [FavorRecord(group_id, r[0], float(r[1]), r[2]) for r in rows]
 
     async def list_favor(self, group_id: str | None = None, limit: int = 500) -> list[FavorRecord]:
+        return await asyncio.to_thread(self._list_favor_sync, group_id, limit)
+
+    def _list_favor_sync(self, group_id: str | None, limit: int) -> list[FavorRecord]:
         with self._lock:
             if group_id:
                 rows = self._c().execute(
@@ -189,6 +197,9 @@ class SQLiteBackend(StorageBackend):
         return recs
 
     async def distinct_groups(self) -> list[dict]:
+        return await asyncio.to_thread(self._distinct_groups_sync)
+
+    def _distinct_groups_sync(self) -> list[dict]:
         with self._lock:
             rows = self._c().execute(
                 "SELECT group_id, COUNT(*) FROM favor GROUP BY group_id ORDER BY group_id"
@@ -270,6 +281,13 @@ class SQLiteBackend(StorageBackend):
             self._c().commit()
 
     async def query_logs(
+        self, group_id=None, user_id=None, limit=200, offset=0, fuzzy=False
+    ) -> list[dict]:
+        # X9：流水查询（面板 limit 可达 1000，LIKE 模糊走不了索引）放线程池
+        return await asyncio.to_thread(
+            self._query_logs_sync, group_id, user_id, limit, offset, fuzzy)
+
+    def _query_logs_sync(
         self, group_id=None, user_id=None, limit=200, offset=0, fuzzy=False
     ) -> list[dict]:
         sql = (

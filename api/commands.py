@@ -92,8 +92,13 @@ async def build_rank_image(
 ) -> str:
     """渲染本群好感度排行为图片（查询人高亮），返回临时 PNG 路径。"""
     rows = await svc.standings(event.get_group_id(), limit=max(rows_per_col * 5, rows_per_col))
+    import asyncio
+
     from .rank_image import render_ranking
-    return render_ranking(rows, event.get_sender_id(), font_path=font_path, rows_per_col=rows_per_col)
+    # X8：同步 PIL 渲染放线程池，避免大图（几百 ms）阻塞事件循环
+    return await asyncio.to_thread(
+        render_ranking, rows, event.get_sender_id(),
+        font_path=font_path, rows_per_col=rows_per_col)
 
 
 async def rank_reply(

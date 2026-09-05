@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 
 from astrbot.api import logger
@@ -30,6 +32,7 @@ from .core.level_economy import EconomyConfig
 from .core.levels import LevelTable
 from .core.naming import TIER_NAME_BY_KEY
 from .core.relationship import RelationshipTable
+from .core.taskregistry import TaskRegistry
 from .services.favor_service import FavorService
 from .services.impression_service import ImpressionService
 from .services.inject_service import InjectService
@@ -172,11 +175,15 @@ class XinxianPlugin(Star):
             timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
         )
 
+        # 后台任务注册表（X10）：评审/印象/延迟清理统一持引用，卸载时
+        # cancel_and_wait_all 后再关存储
+        self._registry = TaskRegistry()
         # 印象服务独立于好感度门面（借 JudgeService 的 provider/人格解析做汇总）
         self._impressions = ImpressionService(
             self._storage,
             interval=int(impression_cfg.get("interval", 8)),
             timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
+            registry=self._registry,
         )
         self._impressions.bind_summarizer(self._judge)
 
@@ -185,6 +192,7 @@ class XinxianPlugin(Star):
             judge=self._judge,
             inject=self._inject,
             impressions=self._impressions,
+            registry=self._registry,
             inject_enabled=bool(inject_cfg.get("enabled", True)),
             memory_count=int(inject_cfg.get("memory_count", 3)),
             memory_days=int(inject_cfg.get("memory_days", 7)),
@@ -204,7 +212,7 @@ class XinxianPlugin(Star):
 
         # 原生 dashboard 页面 API（框架支持时注册，内嵌于主面板，无独立端口/鉴权）
         from .api.page_api import PageApi
-        self._page_api = PageApi(self._favor, self._storage, self._impressions)
+        self._page_api = PageApi(self._favor, self._impressions)
         self._page_api.register(context)
 
     async def initialize(self) -> None:
@@ -212,6 +220,8 @@ class XinxianPlugin(Star):
         logger.info("[心弦] 好感度插件已加载")
 
     async def terminate(self) -> None:
+        # X10：先取消并等待在飞任务（评审/印象刷新/延迟清理），再关存储
+        await self._registry.cancel_and_wait_all(timeout=5.0)
         await self._storage.close()
         logger.info("[心弦] 好感度插件已卸载")
 
@@ -230,7 +240,10 @@ class XinxianPlugin(Star):
             if reply is not None:
                 kind, payload = reply
                 if kind == "image":
-                    yield event.image_result(payload)
+                    try:
+                        yield event.image_result(payload)
+                    finally:
+                        self._schedule_tmp_cleanup(payload)
                 else:  # 未安装 Pillow：降级文字排行
                     yield event.plain_result(payload)
         await on_group_message(self._deps, event)
@@ -251,9 +264,25 @@ class XinxianPlugin(Star):
             text_limit=self._ranking_limit,
         )
         if kind == "image":
-            yield event.image_result(payload)
+            try:
+                yield event.image_result(payload)
+            finally:
+                self._schedule_tmp_cleanup(payload)
         else:
             yield event.plain_result(payload)
+
+    def _schedule_tmp_cleanup(self, path: str, delay: float = 5.0) -> None:
+        """排行图临时 PNG 延迟删除（X8）：yield 恢复即已发出，留几秒兜底
+        平台侧异步读取，经注册表发起防裸任务。"""
+
+        async def _rm():
+            await asyncio.sleep(delay)
+            try:
+                os.unlink(path)
+            except OSError:
+                pass  # 已被清理或平台侧占用失败都无碍（渲染前还有兜底清扫）
+
+        self._registry.spawn(_rm(), name="rank_tmp_cleanup")
 
     @filter.command("好感设置")
     @filter.permission_type(filter.PermissionType.ADMIN)

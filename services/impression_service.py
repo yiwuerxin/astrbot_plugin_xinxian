@@ -25,6 +25,7 @@ class ImpressionService:
         interval: int = 8,
         summarizer=None,
         timeout_sec: float = 60.0,
+        registry=None,
     ) -> None:
         self._storage = storage
         self._interval = max(1, int(interval))
@@ -32,8 +33,8 @@ class ImpressionService:
         # X3：汇总调用超时（与评审同源配置）——挂起的 provider 会把后台
         # 任务永久滞留在注册表里
         self._timeout_sec = max(0.0, float(timeout_sec))
-        # 后台印象刷新任务持引用（裸 create_task 可能被 GC 中途回收）
-        self._bg_tasks: set[asyncio.Task] = set()
+        # X10：后台任务经 TaskRegistry 发起（无注册表时本地集合兜底）
+        self._registry = registry
 
     async def _call_llm(self, provider, prompt: str):
         """带超时的 text_chat（X3）；超时抛 TimeoutError 由调用方降级。"""
@@ -59,11 +60,11 @@ class ImpressionService:
             logs = await self._storage.query_logs(group_id, user_id, limit=self._interval)
             hit = sum(1 for r in logs if r.get("source") == "judge")
             if hit and hit % self._interval == 0:
-                task = asyncio.create_task(
-                    self._refresh_inner(group_id, user_id, umo)
-                )
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
+                coro = self._refresh_inner(group_id, user_id, umo)
+                if self._registry is not None:
+                    self._registry.spawn(coro, name=f"impression:{group_id}/{user_id}")
+                else:
+                    task = asyncio.create_task(coro)  # 测试兜底：本例无后续引用需求
         except Exception:
             pass  # 印象是增值功能，任何失败都不影响主链路
 

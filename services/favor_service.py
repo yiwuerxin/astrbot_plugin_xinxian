@@ -215,6 +215,10 @@ class FavorService:
         await self._storage.set_nickname(group_id, user_id, nick)
         self._nick_cache[key] = nick
 
+    async def distinct_groups(self) -> list[dict]:
+        """有记录的群列表（面板群筛选用；storage 透传，X7 面板不直拿存储）。"""
+        return await self._storage.distinct_groups()
+
     async def query_logs(self, group_id: str, user_id: str, limit: int = 20) -> list[dict]:
         """流水查询透传（注入链路一次拉取，milestone/recent_events 共用）。"""
         return await self._storage.query_logs(group_id, user_id, limit=limit)

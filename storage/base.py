@@ -3,10 +3,13 @@
 上层（services）只依赖本接口；实现类负责并发安全与事务性。
 
 **原子性契约（承重假设）**：FavorService 的「每日限幅读 → apply_delta 写 →
-当日额度记账」三步，以及 set_favor / undo_log 的「读当前值 → 写目标值」
-序列，均依赖实现类的各方法体内不含真实挂起点（同步代码的 async 方法在
-事件循环里原子执行）。若引入真异步后端（aiosqlite/Redis 等），必须把
-上述全部序列收进同一把锁/事务内，否则每日限幅与撤销都会被并发绕过。
+当日额度记账」三步，以及 set_favor / apply_undo（单事务撤销）的内部序列，
+均依赖实现类的这些方法体内不含真实挂起点（同步代码的 async 方法在事件
+循环里原子执行）。**只读路径（ranking/list_favor/distinct_groups/
+query_logs）例外（X9）**：经 asyncio.to_thread 执行、会真实让出——它们
+不参与上述读-改-写序列，线程与事件循环经实现类同一把 threading.Lock
+互斥。若引入真异步后端（aiosqlite/Redis 等），必须把全部读-改-写序列
+收进同一把锁/事务内，否则每日限幅与撤销都会被并发绕过。
 """
 
 from __future__ import annotations

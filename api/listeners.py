@@ -16,6 +16,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 
 from ..core.decimal import fmt
+from ..core.taskregistry import TaskRegistry
 from ..services.favor_service import FavorService
 from ..services.impression_service import ImpressionService
 from ..services.inject_service import InjectService
@@ -35,6 +36,7 @@ class Deps:
     judge: JudgeService
     inject: InjectService
     impressions: ImpressionService | None = None
+    registry: TaskRegistry | None = None  # X10：后台任务注册表（main 注入）
     inject_enabled: bool = True
     memory_count: int = 3
     memory_days: int = 7
@@ -56,8 +58,8 @@ def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
     return has_at_bot, is_reply_bot
 
 
-# 后台评审任务持引用（裸 create_task 只被事件循环弱引用，可能被 GC 中途回收）
-_bg_tasks: set[asyncio.Task] = set()
+# X10：后台评审任务经 Deps.registry（TaskRegistry）发起——裸 create_task
+# 只被事件循环弱引用可能被 GC 中途回收，且卸载时需 cancel_and_wait
 
 
 async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
@@ -108,9 +110,10 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
         except Exception:
             logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）")
 
-    task = asyncio.create_task(_bg())
-    _bg_tasks.add(task)
-    task.add_done_callback(_bg_tasks.discard)
+    if deps.registry is not None:
+        deps.registry.spawn(_bg(), name=f"judge:{group_id}/{user_id}")
+    else:
+        asyncio.create_task(_bg())  # 无注册表兜底（仅测试）
 
 
 async def on_llm_request(
