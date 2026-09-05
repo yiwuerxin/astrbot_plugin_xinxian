@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: 单元测试（Python ${{ matrix.python-version }}）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      # 检出到子目录 astrbot_plugin_xinxian/：test_core.py 把 tests/../..
+      # 加进 sys.path 后以包名导入，工作区根必须正好是插件目录的父目录
+      - uses: actions/checkout@v4
+        with:
+          path: astrbot_plugin_xinxian
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: 安装依赖
+        run: pip install pytest
+      - name: 运行测试
+        run: python -m pytest astrbot_plugin_xinxian/tests/ -q
+      - name: main.py __init__ 赋值顺序检查
+        # #31/#35 两次生产事故均为 __init__ 内配置字典"先用后定义"的
+        # UnboundLocalError（CLAUDE.md 强制检查项，进 CI 固化）
+        run: |
+          python - <<'PY'
+          import ast, sys
+          tree = ast.parse(open('astrbot_plugin_xinxian/main.py', encoding='utf-8').read())
+          init = next(n for n in ast.walk(tree)
+                      if isinstance(n, ast.FunctionDef) and n.name == '__init__')
+          assigned = {}
+          for node in ast.walk(init):
+              if isinstance(node, ast.Assign):
+                  for t in node.targets:
+                      if isinstance(t, ast.Name):
+                          assigned.setdefault(t.id, node.lineno)
+          bad = [n.id for n in ast.walk(init)
+                 if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                 and n.id in assigned and assigned[n.id] > n.lineno]
+          sys.exit(f"ORDER BUG: {bad}" if bad else 0)
+          PY
+
+  purity:
+    name: 敏感数据与纯净交付检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 私有凭据与运行时数据不得被跟踪
+        run: |
+          if git ls-files | grep -E 'tokens\.txt|CLAUDE\.local\.md|xinxian\.db|\.mimosa|__pycache__|\.pytest_cache|Zone\.Identifier|\.log$'; then
+            echo "⛔ 私有凭据/运行时数据被 git 跟踪，禁止合并"
+            exit 1
+          fi
+          echo "✅ 无私有凭据/运行时数据被跟踪"
+      - name: 令牌模式扫描
+        run: |
+          if git grep -nE 'ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]+|https://[^/@[:space:]]+:[^/@[:space:]]+@github' -- .; then
+            echo "⛔ 疑似令牌/带凭据 URL 泄露，禁止合并"
+            exit 1
+          fi
+          echo "✅ 无令牌模式命中"
+      - name: 部署细节不得出现在提交文件（占位符规范）
+        run: |
+          # 排除模式定义所在的 ci.yml 自身；豁免 api/rank_image.py 的字体
+          # 候选探测路径（容器内其他插件字体目录，功能性绝对路径，非部署泄露）
+          if git grep -nE '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot' -- . \
+              | grep -vE '^\.github/workflows/ci\.yml:[0-9]+:' \
+              | grep -vE '^api/rank_image\.py:[0-9]+:.*fonts/'; then
+            echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 CLAUDE.md §1）"
+            exit 1
+          fi
+          echo "✅ 无部署细节泄露"
+      - name: 疑似真实 QQ/群号扫描
+        # 真实 QQ/群号均为 1 开头的 10 位数字；占位符白名单：123456789。
+        # tests/ 豁免——夹具里的 1xxxxxxxxx 是合成时间戳与占位 QQ（评审红线
+        # 要求测试用 123456789/阿狸 等中性占位，PR 审阅时人工把关）
+        run: |
+          if git grep -nE '\b1[0-9]{9}\b' -- . ':(exclude)tests' ':(exclude).github' \
+              | grep -v 123456789; then
+            echo "⛔ 疑似真实 QQ/群号（1 开头 10 位且非占位符 123456789），禁止合并"
+            exit 1
+          fi
+          echo "✅ 无疑似真实 QQ/群号"
