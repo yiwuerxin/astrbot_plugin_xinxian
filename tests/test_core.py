@@ -13,6 +13,26 @@ from pathlib import Path
 
 import pytest
 
+# CI 等无 AstrBot 的环境：注入最小桩 astrbot.api.logger——本仓库测试
+# 契约是离线可跑（CLAUDE.md），taskregistry 模块级与服务层 lazy import
+# 的 logger 需要它（容器内有真实 astrbot 时不生效，仍用真 logger）
+try:
+    from astrbot.api import logger  # noqa: F401
+except ImportError:
+    import sys as _sys
+    import types as _types
+
+    class _OfflineLogger:
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+
+    _pkg = _types.ModuleType("astrbot")
+    _api = _types.ModuleType("astrbot.api")
+    _api.logger = _OfflineLogger()
+    _pkg.api = _api
+    _sys.modules.setdefault("astrbot", _pkg)
+    _sys.modules.setdefault("astrbot.api", _api)
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from astrbot_plugin_xinxian.core.config_migrations import migrate_saved_defaults  # noqa: E402
