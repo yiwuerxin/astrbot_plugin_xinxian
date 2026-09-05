@@ -10,7 +10,7 @@ import sqlite3
 
 from .pragma_version import set_user_version
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 # 版本号 -> 该版本需要执行的 DDL/DML 语句列表
@@ -108,6 +108,10 @@ MIGRATIONS: dict[int, list[str]] = {
     # v8：favor 表加 half_life（遗忘曲线半衰期，天数；正互动巩固 ×growth 封顶 h_max，存量统一起步 10）
     8: [
         "ALTER TABLE favor ADD COLUMN half_life REAL NOT NULL DEFAULT 10",
+    ],
+    # v9：favor 表加 points（P-C 印象带权点模型：[{point,weight,ts}] JSON 数组字符串）
+    9: [
+        "ALTER TABLE favor ADD COLUMN points TEXT NOT NULL DEFAULT '[]'",
     ],
 }
 

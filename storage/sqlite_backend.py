@@ -46,7 +46,7 @@ class SQLiteBackend(StorageBackend):
     async def get(self, group_id: str, user_id: str) -> FavorRecord | None:
         with self._lock:
             row = self._c().execute(
-                "SELECT favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life "
+                "SELECT favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life, points "
                 "FROM favor WHERE group_id=? AND user_id=?",
                 (group_id, user_id),
             ).fetchone()
@@ -57,7 +57,7 @@ class SQLiteBackend(StorageBackend):
             favor=float(row[0]), updated_at=row[1],
             relationship=row[2] or "", nickname=row[3] or "",
             impression=row[4] or "", tags=row[5] or "", impression_at=row[6] or 0.0,
-            half_life=float(row[7] or 10.0),
+            half_life=float(row[7] or 10.0), points=row[8] or "[]",
         )
 
     async def apply_delta(
@@ -144,6 +144,13 @@ class SQLiteBackend(StorageBackend):
         with self._lock:
             self._upsert(group_id, user_id, {"nickname": nickname or ""})
 
+    async def set_points(self, group_id: str, user_id: str, points: list[dict]) -> None:
+        """写入印象点集（P-C；不改好感数值/衰减锚）。"""
+        import json as _json
+        with self._lock:
+            self._upsert(group_id, user_id, {
+                "points": _json.dumps(list(points or []), ensure_ascii=False)})
+
     async def set_impression(
         self, group_id: str, user_id: str, impression: str, tags: list[str]
     ) -> None:
@@ -174,24 +181,26 @@ class SQLiteBackend(StorageBackend):
         with self._lock:
             if group_id:
                 rows = self._c().execute(
-                    "SELECT user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life FROM favor "
+                    "SELECT user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life, points FROM favor "
                     "WHERE group_id=? ORDER BY updated_at DESC LIMIT ?",
                     (group_id, limit),
                 ).fetchall()
                 recs = [
                     FavorRecord(group_id, r[0], float(r[1]), r[2], r[3] or "", r[4] or "",
-                                r[5] or "", r[6] or "", r[7] or 0.0, float(r[8] or 10.0))
+                                r[5] or "", r[6] or "", r[7] or 0.0, float(r[8] or 10.0),
+                                r[9] or "[]")
                     for r in rows
                 ]
             else:
                 rows = self._c().execute(
-                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life FROM favor "
+                    "SELECT group_id, user_id, favor, updated_at, relationship, nickname, impression, tags, impression_at, half_life, points FROM favor "
                     "ORDER BY updated_at DESC LIMIT ?",
                     (limit,),
                 ).fetchall()
                 recs = [
                     FavorRecord(r[0], r[1], float(r[2]), r[3], r[4] or "", r[5] or "",
-                                r[6] or "", r[7] or "", r[8] or 0.0, float(r[9] or 10.0))
+                                r[6] or "", r[7] or "", r[8] or 0.0, float(r[9] or 10.0),
+                                r[10] or "[]")
                     for r in rows
                 ]
         return recs

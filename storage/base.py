@@ -65,6 +65,10 @@ class StorageBackend(ABC):
         """更新成员昵称（不改好感数值）；发言时捕获，供排行图/WebUI 显示名字。"""
 
     @abstractmethod
+    async def set_points(self, group_id: str, user_id: str, points: list[dict]) -> None:
+        """写入印象点集（P-C 带权点模型；不改好感数值）。"""
+
+    @abstractmethod
     async def set_impression(
         self, group_id: str, user_id: str, impression: str, tags: list[str]
     ) -> None:

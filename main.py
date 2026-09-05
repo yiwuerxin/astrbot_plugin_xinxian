@@ -185,6 +185,7 @@ class XinxianPlugin(Star):
             interval=int(impression_cfg.get("interval", 8)),
             timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
             registry=self._registry,
+            points_mode=bool(impression_cfg.get("points_mode", False)),
         )
         self._impressions.bind_summarizer(self._judge)
 

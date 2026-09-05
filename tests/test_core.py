@@ -1103,6 +1103,73 @@ class TestRosterRender:
 
 # ---------------- 印象与标签 ----------------
 
+class TestImpressionPoints:
+    """P-C 带权印象点模型（纯逻辑 + 存储 v9 + 迁移）。"""
+
+    def test_points_pure_logic(self):
+        import time
+        import random
+        from astrbot_plugin_xinxian.core.impression_points import (
+            anonymize, loss_aversion_multiplier, merge_points, parse_points,
+            render_impression, retain, time_weight,
+        )
+        now = time.time()
+        merged = merge_points(
+            [{"point": "嘴硬心软爱用外号逗人", "weight": 5, "ts": now}],
+            [{"point": "嘴硬心软爱用外号逗大家", "weight": 4}])
+        assert len(merged) == 1 and merged[0]["weight"] == 9  # 相似合并权重求和
+        assert len(merge_points([], [{"point": "a", "weight": 5},
+                                     {"point": "完全不同", "weight": 3}])) == 2
+        assert [time_weight(x) for x in (60, 7200, 3 * 86400, 10 * 86400, 40 * 86400)] == \
+            [1.0, 0.7, 0.95, 0.1, 0.05]
+        pts = [{"point": f"p{i}", "weight": 1, "ts": now} for i in range(14)]
+        kept, dropped = retain(pts, now, rng=random.Random(1))
+        assert (len(kept), len(dropped)) == (10, 4)  # 加权随机限量保留
+        assert loss_aversion_multiplier(-2) == 1.5 and loss_aversion_multiplier(1) == 1.0
+        assert anonymize("阿狸骂了小咕嘎", ["阿狸", "小咕嘎"]) == "用户A骂了用户B"
+        assert parse_points('好的 [{"point":"爱抬杠","weight":7}]') == [{"point": "爱抬杠", "weight": 7}]
+        assert parse_points("拒答") is None
+        assert render_impression([{"point": "爱抬杠", "weight": 9}]) == "爱抬杠"
+
+    def test_points_storage_v9(self, tmp_path):
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        rec = asyncio.run(b.set_value("g", "u", 10))
+        asyncio.run(b.set_points("g", "u", [{"point": "话痨", "weight": 6, "ts": 1.0}]))
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.parsed_points() == [{"point": "话痨", "weight": 6, "ts": 1.0}]
+        rows = asyncio.run(b.list_favor("g"))
+        assert rows[0].parsed_points()[0]["point"] == "话痨"
+
+    def test_v9_migration_roundtrip(self, tmp_path):
+        # 旧 v8 库升级到 v9：加 points 列，既有数据不动
+        import sqlite3
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA user_version(8)")
+        conn.execute("""CREATE TABLE favor (
+            group_id TEXT NOT NULL, user_id TEXT NOT NULL, favor REAL NOT NULL,
+            updated_at REAL NOT NULL, relationship TEXT NOT NULL DEFAULT '',
+            nickname TEXT NOT NULL DEFAULT '', impression TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '', impression_at REAL NOT NULL DEFAULT 0,
+            half_life REAL NOT NULL DEFAULT 10, PRIMARY KEY (group_id, user_id))""")
+        conn.execute("INSERT INTO favor(group_id,user_id,favor,updated_at) VALUES('g','u',5.5,1)")
+        conn.commit(); conn.close()
+        b = SQLiteBackend(db)
+        asyncio.run(b.init())
+        rec = asyncio.run(b.get("g", "u"))
+        assert rec.favor == 5.5 and rec.parsed_points() == []  # 新列默认空
+
+    def test_service_points_mode_offline(self, tmp_path):
+        # points_mode 关闭：走 legacy 一句话路径（既有行为不变）
+        from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+        b = SQLiteBackend(tmp_path / "t.db")
+        asyncio.run(b.init())
+        svc = ImpressionService(b)
+        ok, msg = asyncio.run(svc.refresh_now("g", "u"))
+        assert ok is False and "未启用" in msg
+
+
 class TestSanitizeAndFacade:
     """P-F 清洗 / P-H 画像。"""
 
