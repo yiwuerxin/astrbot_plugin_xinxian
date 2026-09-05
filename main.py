@@ -128,6 +128,12 @@ class XinxianPlugin(Star):
         template = (inject_cfg.get("template") or "").strip() or _read_resource(
             "resources/prompts/inject_template.txt"
         )
+        # X2：装配期校验自定义模板——未知占位符会让注入在每次 LLM 请求上
+        # 抛 KeyError（注入是必经路径），发现即报配置错误并回落默认模板
+        tpl_err = InjectService.validate_template(template)
+        if tpl_err:
+            logger.error(f"[心弦] inject.template 非法（{tpl_err}），已回落默认模板")
+            template = _read_resource("resources/prompts/inject_template.txt")
         anchor_enabled = bool(inject_cfg.get("persona_anchor_enabled", True))
         anchor_text = (inject_cfg.get("persona_anchor") or "").strip()
         persona_anchor = (

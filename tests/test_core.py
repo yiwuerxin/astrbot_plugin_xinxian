@@ -144,6 +144,24 @@ class TestRelationship:
 
 
 class TestInject:
+    def test_template_validation(self):
+        # X2：自定义模板未知占位符必须在装配期发现（format 时 KeyError 会
+        # 打断每次 LLM 请求的注入——注入是每次对话的必经路径，不是增值功能）
+        from astrbot_plugin_xinxian.services.inject_service import InjectService
+
+        assert InjectService.validate_template("好感 {favor}（{level_name}）") is None
+        # 全占位符的合法模板
+        full = "{" + "}{".join([
+            "nickname", "user_id", "master_line", "favor", "max_favor", "level_name",
+            "level_guidance", "disclosure", "interaction", "recent_events",
+            "relationship", "impression", "milestone"]) + "}"
+        assert InjectService.validate_template(full) is None
+        # 未知占位符 / 位置参数 / 转义大括号（合法）
+        err = InjectService.validate_template("JSON 示例 {foo}")
+        assert err and "foo" in err
+        assert InjectService.validate_template("位置参数 {}") is not None
+        assert InjectService.validate_template("字面大括号 {{ok}}") is None
+
     def test_block_with_and_without_events(self):
         from astrbot_plugin_xinxian.services.inject_service import InjectService
 

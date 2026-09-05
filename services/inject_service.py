@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import time
+from string import Formatter
 
 from ..core.decimal import fmt
 from ..core.levels import LevelTable
@@ -21,6 +22,13 @@ DEFAULT_MASTER_PROMPT = (
     "，TA 是你的{master_title}。主人身份恒定，好感度照常涨跌、不豁免——"
     "下面的等级与态度指引按主人关系理解（负好感＝闹别扭，正值＝亲疏程度，不是对外人的语义）"
 )
+
+# 模板合法占位符全集（build_block 的 format 关键字参数）
+_TEMPLATE_FIELDS = frozenset({
+    "nickname", "user_id", "master_line", "favor", "max_favor", "level_name",
+    "level_guidance", "disclosure", "interaction", "recent_events",
+    "relationship", "impression", "milestone",
+})
 
 
 class InjectService:
@@ -45,6 +53,25 @@ class InjectService:
         # 主人提示：留空用默认；用 replace 替换 {master_title}，避免用户自定义文本
         # 里其他花括号被 .format 误解析。
         self._master_tpl = (master_prompt or "").strip() or DEFAULT_MASTER_PROMPT
+
+    @staticmethod
+    def validate_template(template: str) -> str | None:
+        """静态校验注入模板占位符（X2）；返回问题描述，None=合法。
+
+        自定义模板里的未知花括号（如粘贴的 JSON 示例）会让 build_block 的
+        format 在每次 LLM 请求上抛 KeyError——注入是每次对话的必经路径，
+        必须在装配期发现并回落默认模板，而非运行期炸注入。位置参数 {}
+        同样非法（format 只按关键字供参）；{{转义}} 合法。
+        """
+        try:
+            fields = [f for _, f, _, _ in Formatter().parse(template or "")]
+        except ValueError as e:
+            return f"模板语法错误：{e}"
+        unknown = [
+            (f if f else "<位置参数>") for f in fields
+            if f is not None and (f == "" or f not in _TEMPLATE_FIELDS)
+        ]
+        return f"未知占位符 {unknown}" if unknown else None
 
     @staticmethod
     def _format_impression(record: FavorRecord) -> str:

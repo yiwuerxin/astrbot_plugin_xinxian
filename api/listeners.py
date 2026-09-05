@@ -116,7 +116,19 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
 async def on_llm_request(
     deps: Deps, event: AstrMessageEvent, req: ProviderRequest
 ) -> None:
-    """LLM 请求前：注入好感度档案（仅群聊，私聊跳过）。"""
+    """LLM 请求前：注入好感度档案（仅群聊，私聊跳过）。
+
+    X2：注入是每次对话的必经路径而非增值功能——任何失败（存储/渲染/
+    模板）只 warning 并跳过本次注入，绝不把异常抛进框架钩子打断回复。"""
+    try:
+        await _on_llm_request_inner(deps, event, req)
+    except Exception:
+        logger.warning("[心弦] 注入链路异常，本次跳过注入（不影响对话）", exc_info=True)
+
+
+async def _on_llm_request_inner(
+    deps: Deps, event: AstrMessageEvent, req: ProviderRequest
+) -> None:
     if not deps.inject_enabled:
         return
     group_id, user_id = event.get_group_id(), event.get_sender_id()
