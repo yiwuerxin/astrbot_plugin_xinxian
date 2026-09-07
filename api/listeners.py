@@ -95,7 +95,9 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
             )
             if result is not None and result.delta:
                 change = await deps.favor.apply_judge(
-                    group_id, user_id, result.delta,
+                    group_id,
+                    user_id,
+                    result.delta,
                     reason=result.reason or f"judge:{result.attitude}",
                     message=text,
                 )
@@ -106,7 +108,8 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                     )
                     if deps.impressions is not None:
                         await deps.impressions.maybe_refresh(
-                            group_id, user_id,
+                            group_id,
+                            user_id,
                             umo=getattr(event, "unified_msg_origin", "") or "",
                         )
         except Exception:
@@ -148,7 +151,10 @@ async def _on_llm_request_inner(
     # recent_events 是 async def——漏 await 会返回协程，注入链路在
     # _format_events 的 for 循环上炸 TypeError: 'coroutine' object is not iterable
     events = await deps.favor.recent_events(
-        group_id, user_id, deps.memory_count, deps.memory_days,
+        group_id,
+        user_id,
+        deps.memory_count,
+        deps.memory_days,
         logs=logs,
         sig_threshold=deps.memory_sig_threshold,
         sig_window_mult=deps.memory_sig_window_mult,

@@ -48,7 +48,9 @@ def _read_resource(rel: str) -> str:
 
 def _split_phrases(raw: str) -> set[str]:
     """逗号分隔的短语（兼容中文逗号）→ 去空去重的集合。"""
-    return {x.strip() for x in str(raw or "").replace("，", ",").split(",") if x.strip()}
+    return {
+        x.strip() for x in str(raw or "").replace("，", ",").split(",") if x.strip()
+    }
 
 
 @register(
@@ -204,7 +206,9 @@ class XinxianPlugin(Star):
         cmd_cfg = config.get("command") or {}
         self._ranking_limit = int(cmd_cfg.get("ranking_limit", 10))
         self._text_wake_enabled = bool(cmd_cfg.get("text_wake_enabled", False))
-        self._text_wake_ranking = _split_phrases(cmd_cfg.get("text_wake_ranking", "好感排行,好感榜单,好感排名"))
+        self._text_wake_ranking = _split_phrases(
+            cmd_cfg.get("text_wake_ranking", "好感排行,好感榜单,好感排名")
+        )
         render_cfg = config.get("render") or {}
         self._render_font = (render_cfg.get("font_path") or "").strip()
         self._render_rows = int(render_cfg.get("rows_per_col", 12))
@@ -214,6 +218,7 @@ class XinxianPlugin(Star):
 
         # 原生 dashboard 页面 API（框架支持时注册，内嵌于主面板，无独立端口/鉴权）
         from .api.page_api import PageApi
+
         self._page_api = PageApi(self._favor, self._impressions)
         self._page_api.register(context)
 
@@ -234,9 +239,11 @@ class XinxianPlugin(Star):
         # 文字唤醒：群里直接发文字（不用 /）触发查询指令；与 / 指令一致，之后照常跑评估引擎
         if self._text_wake_enabled and not getattr(event, "_xinxian_cmd_done", False):
             reply = await cmd.try_text_wake(
-                self._favor, event,
+                self._favor,
+                event,
                 self._text_wake_ranking,
-                self._render_font, self._render_rows,
+                self._render_font,
+                self._render_rows,
                 text_limit=self._ranking_limit,
             )
             if reply is not None:
@@ -261,8 +268,10 @@ class XinxianPlugin(Star):
         """查看本群对小千的好感度排行（图片；未安装 Pillow 时降级文字）"""
         event._xinxian_cmd_done = True
         kind, payload = await cmd.rank_reply(
-            self._favor, event,
-            font_path=self._render_font, rows_per_col=self._render_rows,
+            self._favor,
+            event,
+            font_path=self._render_font,
+            rows_per_col=self._render_rows,
             text_limit=self._ranking_limit,
         )
         if kind == "image":
@@ -288,9 +297,13 @@ class XinxianPlugin(Star):
 
     @filter.command("好感设置")
     @filter.permission_type(filter.PermissionType.ADMIN)
-    async def _cmd_set(self, event: AstrMessageEvent, target: str = "", value: float = 0.0):
+    async def _cmd_set(
+        self, event: AstrMessageEvent, target: str = "", value: float = 0.0
+    ):
         """设置某成员好感度（管理员，支持一位小数与负值）。用法：/好感设置 QQ号 数值"""
-        yield event.plain_result(await cmd.handle_set(self._favor, event, target, value))
+        yield event.plain_result(
+            await cmd.handle_set(self._favor, event, target, value)
+        )
 
     @filter.command("好感重置")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -300,15 +313,21 @@ class XinxianPlugin(Star):
 
     @filter.command("关系设置")
     @filter.permission_type(filter.PermissionType.ADMIN)
-    async def _cmd_set_rel(self, event: AstrMessageEvent, target: str = "", key: str = ""):
+    async def _cmd_set_rel(
+        self, event: AstrMessageEvent, target: str = "", key: str = ""
+    ):
         """设置某成员与小千的关系（管理员）。用法：/关系设置 QQ号 类型"""
         yield event.plain_result(
-            await cmd.handle_set_relationship(self._favor, self._relationships, event, target, key)
+            await cmd.handle_set_relationship(
+                self._favor, self._relationships, event, target, key
+            )
         )
 
     @filter.command("印象设置")
     @filter.permission_type(filter.PermissionType.ADMIN)
-    async def _cmd_set_tags(self, event: AstrMessageEvent, target: str = "", tags: str = ""):
+    async def _cmd_set_tags(
+        self, event: AstrMessageEvent, target: str = "", tags: str = ""
+    ):
         """设置成员标签（管理员）。用法：/印象设置 QQ号 标签1,标签2"""
         yield event.plain_result(
             await cmd.handle_set_tags(self._impressions, event, target, tags)
@@ -318,7 +337,9 @@ class XinxianPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def _cmd_refresh_imp(self, event: AstrMessageEvent, target: str = ""):
         """立即刷新成员印象（管理员）。用法：/印象刷新 QQ号"""
-        yield event.plain_result(await cmd.handle_refresh_impression(self._impressions, event, target))
+        yield event.plain_result(
+            await cmd.handle_refresh_impression(self._impressions, event, target)
+        )
 
     # ---------------- LLM 工具 ----------------
 

@@ -93,7 +93,10 @@ class XinxianFacade:
             "guidance": lv.guidance,
             "impression": (rec.impression or "").strip(),
             "tags": rec.parsed_tags(),
-            "relationship": (self._favor.relationship_label(rec.relationship)
-                             if rec.relationship else ""),
+            "relationship": (
+                self._favor.relationship_label(rec.relationship)
+                if rec.relationship
+                else ""
+            ),
             "is_master": self._favor.is_master(user_id),
         }

@@ -30,18 +30,18 @@ _CJK_CANDIDATES = [
 ]
 
 # 千咲（朽叶千咲）配色：黑长直黑发 + 红瞳 + 红黑剪刀 + 湮灭暗调 → 深底 + 绯红强调
-_BG = (26, 24, 30)            # 页面底：近黑微紫（湮灭/暗调）
-_TITLE = (236, 230, 232)      # 标题：近白
-_ACCENT = (172, 36, 50)       # 千咲红（红瞳 / 红黑剪刀）：高亮与强调
-_CELL_BG = (40, 36, 46)       # 单元格底：深紫黑
-_CELL_BORDER = (74, 46, 56)   # 单元格边：暗红紫
-_TEXT = (228, 224, 230)       # 正文：浅
-_HL_BG = _ACCENT              # 查询人高亮：千咲红
-_HL_BORDER = (214, 64, 79)    # 高亮描边：亮绯
-_HL_TEXT = (255, 255, 255)    # 高亮文字：白
+_BG = (26, 24, 30)  # 页面底：近黑微紫（湮灭/暗调）
+_TITLE = (236, 230, 232)  # 标题：近白
+_ACCENT = (172, 36, 50)  # 千咲红（红瞳 / 红黑剪刀）：高亮与强调
+_CELL_BG = (40, 36, 46)  # 单元格底：深紫黑
+_CELL_BORDER = (74, 46, 56)  # 单元格边：暗红紫
+_TEXT = (228, 224, 230)  # 正文：浅
+_HL_BG = _ACCENT  # 查询人高亮：千咲红
+_HL_BORDER = (214, 64, 79)  # 高亮描边：亮绯
+_HL_TEXT = (255, 255, 255)  # 高亮文字：白
 _EMPTY = (150, 142, 150)
-_DIM = (122, 115, 128)        # 弱化：名次/页脚
-_TOP3 = (238, 84, 99)         # 前三名：亮绯
+_DIM = (122, 115, 128)  # 弱化：名次/页脚
+_TOP3 = (238, 84, 99)  # 前三名：亮绯
 
 # 七级好感色温轴（深底可读版）：冷蓝紫(厌恶) → 灰 → 玫瑰 → 亮绯(挚爱)
 # 与 WebUI 面板同源，按深底提亮
@@ -66,7 +66,14 @@ def _level_color(row: dict):
         f = float(row.get("favor") or 0)
     except (TypeError, ValueError):
         f = 0.0
-    for name, lo in (("挚爱", 95), ("挚友", 80), ("亲密", 55), ("友好", 30), ("认识", 10), ("陌生", 0)):
+    for name, lo in (
+        ("挚爱", 95),
+        ("挚友", 80),
+        ("亲密", 55),
+        ("友好", 30),
+        ("认识", 10),
+        ("陌生", 0),
+    ):
         if f >= lo:
             return _LEVEL_COLORS[name]
     return _LEVEL_COLORS["厌恶"]
@@ -106,10 +113,12 @@ def _fit(draw, text: str, font, max_w: int) -> str:
             lo = mid
         else:
             hi = mid - 1
-    return text[:max(lo, 1)] + "…"
+    return text[: max(lo, 1)] + "…"
 
 
-def _text_vh(draw, x: int, y_center: int, text: str, font, fill, *, right_x: int | None = None):
+def _text_vh(
+    draw, x: int, y_center: int, text: str, font, fill, *, right_x: int | None = None
+):
     """垂直居中画文本；right_x 给定时右对齐到该 x。"""
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -117,7 +126,9 @@ def _text_vh(draw, x: int, y_center: int, text: str, font, fill, *, right_x: int
     draw.text((tx, y_center - th / 2 - bbox[1]), text, font=font, fill=fill)
 
 
-def _gradient_string(img: Image.Image, x0: int, y: int, width: int, height: int = 3) -> None:
+def _gradient_string(
+    img: Image.Image, x0: int, y: int, width: int, height: int = 3
+) -> None:
     """冷→暖渐变「弦线」（圆角），停靠点取色温轴七级色。"""
     grad = Image.new("RGB", (width, height))
     gd = ImageDraw.Draw(grad)
@@ -126,10 +137,14 @@ def _gradient_string(img: Image.Image, x0: int, y: int, width: int, height: int 
         t = gx / max(width - 1, 1) * last
         i = min(int(t), last - 1)
         f = t - i
-        c = tuple(round(_RAMP[i][k] + (_RAMP[i + 1][k] - _RAMP[i][k]) * f) for k in range(3))
+        c = tuple(
+            round(_RAMP[i][k] + (_RAMP[i + 1][k] - _RAMP[i][k]) * f) for k in range(3)
+        )
         gd.line([(gx, 0), (gx, height)], fill=c)
     mask = Image.new("L", (width, height), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, width - 1, height - 1], radius=height // 2, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [0, 0, width - 1, height - 1], radius=height // 2, fill=255
+    )
     img.paste(grad, (x0, y), mask)
 
 
@@ -172,7 +187,13 @@ def render_ranking(
     footer_h = 36
 
     img_w = pad * 2 + cols * cell_w + max(0, cols - 1) * gap_x
-    img_h = pad * 2 + title_h + rows_in_col * cell_h + max(0, rows_in_col - 1) * gap_y + footer_h
+    img_h = (
+        pad * 2
+        + title_h
+        + rows_in_col * cell_h
+        + max(0, rows_in_col - 1) * gap_y
+        + footer_h
+    )
     img = Image.new("RGB", (img_w, img_h), _BG)
     draw = ImageDraw.Draw(img)
 
@@ -183,7 +204,9 @@ def render_ranking(
 
     # ---- 头部：红瞳圆点 + 标题 + 右侧人数 + 渐变弦线 ----
     dot_cx, dot_cy = pad + 7, pad + 17
-    draw.ellipse([dot_cx - 10, dot_cy - 10, dot_cx + 10, dot_cy + 10], fill=(58, 34, 42))
+    draw.ellipse(
+        [dot_cx - 10, dot_cy - 10, dot_cx + 10, dot_cy + 10], fill=(58, 34, 42)
+    )
     draw.ellipse([dot_cx - 5, dot_cy - 5, dot_cx + 5, dot_cy + 5], fill=_ACCENT)
     draw.text((pad + 24, pad + 2), title, font=f_title, fill=_TITLE)
     if n:
@@ -203,7 +226,8 @@ def render_ranking(
         cy = y + cell_h / 2
         is_q = str(r.get("user_id", "")) == querier
         draw.rounded_rectangle(
-            [x, y, x + cell_w, y + cell_h], radius=10,
+            [x, y, x + cell_w, y + cell_h],
+            radius=10,
             fill=_HL_BG if is_q else _CELL_BG,
             outline=_HL_BORDER if is_q else _CELL_BORDER,
         )
@@ -212,7 +236,8 @@ def render_ranking(
 
         # 左：等级色温条
         draw.rounded_rectangle(
-            [x + 10, y + 11, x + 14, y + cell_h - 11], radius=2,
+            [x + 10, y + 11, x + 14, y + cell_h - 11],
+            radius=2,
             fill=_HL_TEXT if is_q else lc,
         )
         # 名次（前三亮绯）
@@ -232,7 +257,9 @@ def render_ranking(
         nick_x = x + 66
         nick_max = (x + cell_w - 16 - fw - 14) - nick_x
         nick = str(r.get("nickname") or "").strip()
-        nick = _fit(draw, nick, f_cell, max(nick_max - suffix_w - 6, 30)) if nick else ""
+        nick = (
+            _fit(draw, nick, f_cell, max(nick_max - suffix_w - 6, 30)) if nick else ""
+        )
         label = f"{nick} {suffix}" if nick else suffix
         _text_vh(draw, nick_x, cy, label, f_cell, fg)
 
@@ -240,6 +267,8 @@ def render_ranking(
     fy = img_h - pad - footer_h / 2 + 4
     _text_vh(draw, 0, fy, "心弦 · 好感度", f_small, _DIM, right_x=img_w - pad)
 
-    path = tempfile.NamedTemporaryFile(prefix=_TMP_PREFIX, suffix=".png", delete=False).name
+    path = tempfile.NamedTemporaryFile(
+        prefix=_TMP_PREFIX, suffix=".png", delete=False
+    ).name
     img.save(path, "PNG")
     return path

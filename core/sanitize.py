@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 
 _REPLY_PREFIX_RE = re.compile(
-    r"^\s*(?:\[CQ:reply[^\]]*\]|\[回复[^\]]*\]|\[引用[^\]]*\]|<reply>[^<]*</reply>)\s*")
+    r"^\s*(?:\[CQ:reply[^\]]*\]|\[回复[^\]]*\]|\[引用[^\]]*\]|<reply>[^<]*</reply>)\s*"
+)
 _FORWARD_RE = re.compile(r"\[CQ:forward[^\]]*\]|\[合并转发[^\]]*\]")
 
 # 注入块尾部两句防注入声明（P-F；开关 inject.anti_injection 默认开）

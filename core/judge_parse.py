@@ -29,8 +29,10 @@ _LEGACY_RE = re.compile(
     r"分值[:：]\s*([+-]?\d+(?:\.\d+)?)"
 )
 _LEGACY_TIER = {
-    "友好": "友好", "善意": "友好",
-    "敌意": "敌意", "恶意": "敌意",
+    "友好": "友好",
+    "善意": "友好",
+    "敌意": "敌意",
+    "恶意": "敌意",
     "中性": "中性",
 }
 
@@ -64,15 +66,15 @@ def _clamp_to_tier(score: float, tier: str, deltas: dict[str, float]) -> float:
         return 0.0
     d = deltas.get(tier, 0.0)
     if tier == "敌意":
-        lo = d                       # 敌意锚（如 -2.5）为下界
+        lo = d  # 敌意锚（如 -2.5）为下界
         hi = deltas.get("冷淡", -0.8)  # 冷淡锚为上界
         return max(lo, min(hi, score)) if score < 0 else lo
     if tier == "冷淡":
-        lo = d                       # 冷淡锚（如 -0.8）为下界
+        lo = d  # 冷淡锚（如 -0.8）为下界
         hi = 0.0
         return max(lo, min(hi, score)) if score < 0 else lo
     if tier == "友好":
-        hi = d                       # 友好锚（如 0.6）为上界
+        hi = d  # 友好锚（如 0.6）为上界
         return min(hi, max(0.1, score)) if score > 0 else hi
     # 热情：热情锚（如 1.8）为下界，上界交给 max_abs_delta 兜底
     return max(d, score) if score > 0 else d
@@ -98,18 +100,26 @@ def parse(
         sm = _SCORE_RE.search(text)
         ev = _EVIDENCE_RE.search(text)
         reason = _REASON_RE.search(text)
-        evidence = (ev.group(1).strip() if ev else "")
+        evidence = ev.group(1).strip() if ev else ""
         # 证据门槛：非中性档位必须给出非空证据，否则强制改判中性
         if tier != "中性" and not evidence:
             tier = "中性"
         if tier == "中性":
-            return ParsedJudge(tier="中性", delta=0.0,
-                               evidence="", reason=(reason.group(1).strip() if reason else ""))
+            return ParsedJudge(
+                tier="中性",
+                delta=0.0,
+                evidence="",
+                reason=(reason.group(1).strip() if reason else ""),
+            )
         score = float(sm.group(1)) if sm else deltas.get(tier, 0.0)
         score = _clamp_to_tier(score, tier, deltas)
         score = max(-max_abs_delta, min(max_abs_delta, score))
-        return ParsedJudge(tier=tier, delta=score, evidence=evidence,
-                           reason=(reason.group(1).strip() if reason else ""))
+        return ParsedJudge(
+            tier=tier,
+            delta=score,
+            evidence=evidence,
+            reason=(reason.group(1).strip() if reason else ""),
+        )
 
     m = _LEGACY_RE.search(text)
     if m:

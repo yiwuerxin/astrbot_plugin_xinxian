@@ -27,9 +27,9 @@ from ..storage.base import StorageBackend
 class JudgeResult:
     """一次评估结果。"""
 
-    delta: float     # 调整分值（档位映射+限幅，精度一位小数），0 = 中性
-    attitude: str    # 五档：敌意 / 冷淡 / 中性 / 友好 / 热情
-    raw: str         # 模型原始输出
+    delta: float  # 调整分值（档位映射+限幅，精度一位小数），0 = 中性
+    attitude: str  # 五档：敌意 / 冷淡 / 中性 / 友好 / 热情
+    raw: str  # 模型原始输出
     reason: str = ""  # 变动理由（narrative 模式下有值）
     evidence: str = ""  # 非中性档位的原话证据（解析层强制要求）
 
@@ -110,7 +110,9 @@ class JudgeService:
                 persona_name=persona_name,
                 persona_prompt=persona_prompt,
                 roster=self._roster,
-                tier_ranges=tier_ranges_line(self._attitude_deltas, self._max_abs_delta),
+                tier_ranges=tier_ranges_line(
+                    self._attitude_deltas, self._max_abs_delta
+                ),
             )
             contexts = await self._recent_context(event)
             try:
@@ -120,7 +122,9 @@ class JudgeService:
                     call = asyncio.wait_for(call, timeout=self._timeout_sec)
                 resp = await call
             except TypeError:
-                call = provider.text_chat(prompt)  # 不支持 contexts 的 provider：退化为无上下文
+                call = provider.text_chat(
+                    prompt
+                )  # 不支持 contexts 的 provider：退化为无上下文
                 if self._timeout_sec > 0:
                     call = asyncio.wait_for(call, timeout=self._timeout_sec)
                 resp = await call
@@ -151,7 +155,9 @@ class JudgeService:
         umo = getattr(event, "unified_msg_origin", "") or ""
         return await self._persona_ctx_for(umo, event.get_platform_name())
 
-    async def _persona_ctx_for(self, umo: str, platform_name: str = "") -> tuple[str, str]:
+    async def _persona_ctx_for(
+        self, umo: str, platform_name: str = ""
+    ) -> tuple[str, str]:
         """按 umo 解析生效人格（与 AstrBot 主链路同源：conv.persona_id →
         persona_manager.resolve_selected_persona）。任何失败（旧版框架无该
         API / 无会话 / 解析异常）静默回落 (bot_name, "")。"""
@@ -225,7 +231,7 @@ class JudgeService:
                 return []
             history = json.loads(getattr(conv, "history", "") or "[]")
             contexts: list[dict] = []
-            for rec in history[-int(n):]:
+            for rec in history[-int(n) :]:
                 role = rec.get("role")
                 # 提取纯文本（4.26 的 content 可能是结构化列表）；
                 # 图片/工具调用/think 等不带文本的部分在提取时跳过

@@ -38,16 +38,24 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a or "", b or "").ratio()
 
 
-def merge_points(existing: list[dict], new: list[dict],
-                 similarity: float = MERGE_SIMILARITY) -> list[dict]:
+def merge_points(
+    existing: list[dict], new: list[dict], similarity: float = MERGE_SIMILARITY
+) -> list[dict]:
     """相似点合并：权重求和、保留最长描述；不相似则追加。"""
     out = [dict(p) for p in (existing or [])]
-    for p in (new or []):
+    for p in new or []:
         text = str(p.get("point") or "").strip()
         if not text:
             continue
         weight = max(1, min(10, int(float(p.get("weight") or 5))))
-        hit = next((q for q in out if _similarity(str(q.get("point") or ""), text) >= similarity), None)
+        hit = next(
+            (
+                q
+                for q in out
+                if _similarity(str(q.get("point") or ""), text) >= similarity
+            ),
+            None,
+        )
         if hit is not None:
             hit["weight"] = max(1, min(99, int(hit.get("weight") or 1) + weight))
             if len(text) > len(str(hit.get("point") or "")):
@@ -71,8 +79,9 @@ def time_weight(age_seconds: float) -> float:
     return 0.05
 
 
-def retain(points: list[dict], now: float, cap: int = MAX_ACTIVE_POINTS,
-           rng=None) -> tuple[list[dict], list[dict]]:
+def retain(
+    points: list[dict], now: float, cap: int = MAX_ACTIVE_POINTS, rng=None
+) -> tuple[list[dict], list[dict]]:
     """活跃点 > cap 时按 weight × time_weight 加权随机保留 cap 条。
 
     返回 (保留, 挤出)。挤出项由调用方并入长印象文本。
@@ -85,8 +94,13 @@ def retain(points: list[dict], now: float, cap: int = MAX_ACTIVE_POINTS,
         return pts, []
     if rng is None:
         rng = random.Random()
-    weights = [max(0.0001, float(p.get("weight") or 1) * time_weight(now - float(p.get("ts") or 0)))
-               for p in pts]
+    weights = [
+        max(
+            0.0001,
+            float(p.get("weight") or 1) * time_weight(now - float(p.get("ts") or 0)),
+        )
+        for p in pts
+    ]
     keep_idx: set[int] = set()
     idx_pool = list(range(len(pts)))
     while len(keep_idx) < cap and idx_pool:
@@ -124,9 +138,14 @@ def parse_points(raw: str) -> list[dict] | None:
         arr = json.loads(m.group(0))
         if not isinstance(arr, list):
             return None
-        pts = [{"point": str(it.get("point") or "").strip()[:80],
-                "weight": max(1, min(10, int(float(it.get("weight") or 5))))}
-               for it in arr if isinstance(it, dict) and str(it.get("point") or "").strip()]
+        pts = [
+            {
+                "point": str(it.get("point") or "").strip()[:80],
+                "weight": max(1, min(10, int(float(it.get("weight") or 5)))),
+            }
+            for it in arr
+            if isinstance(it, dict) and str(it.get("point") or "").strip()
+        ]
         return pts or None
     except Exception:
         return None
@@ -134,8 +153,10 @@ def parse_points(raw: str) -> list[dict] | None:
 
 def render_impression(points: list[dict], limit: int = 80) -> str:
     """活跃点 → 一句话印象（权重降序前 3 条拼接，≤limit 字）。"""
-    top = sorted((p for p in (points or []) if p.get("point")),
-                 key=lambda p: -int(p.get("weight") or 0))[:3]
+    top = sorted(
+        (p for p in (points or []) if p.get("point")),
+        key=lambda p: -int(p.get("weight") or 0),
+    )[:3]
     if not top:
         return ""
     return "；".join(str(p["point"]) for p in top)[:limit]

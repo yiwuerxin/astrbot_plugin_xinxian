@@ -10,9 +10,9 @@ from __future__ import annotations
 import re
 import time
 
-IMPRESSION_MAX = 80        # 印象正文长度上限
-TAG_MAX = 3                # 标签数量上限
-TAG_LEN_MAX = 6            # 单个标签长度上限
+IMPRESSION_MAX = 80  # 印象正文长度上限
+TAG_MAX = 3  # 标签数量上限
+TAG_LEN_MAX = 6  # 单个标签长度上限
 
 _SUMMARY_RE = re.compile(r"印象[:：][ \t]*([^\n]+)")
 _TAGS_RE = re.compile(r"标签[:：][ \t]*([^\n]+)")
@@ -32,8 +32,7 @@ def stats_tags(logs: list[dict]) -> list[str]:
     if len(judged) >= 10:
         tags.append("常客")
     night = sum(
-        1 for r in judged
-        if 0 <= time.localtime(float(r.get("ts") or 0)).tm_hour < 6
+        1 for r in judged if 0 <= time.localtime(float(r.get("ts") or 0)).tm_hour < 6
     )
     if night / len(judged) >= 0.3:
         tags.append("夜猫子")
@@ -47,7 +46,9 @@ def stats_tags(logs: list[dict]) -> list[str]:
 
 
 def build_summary_prompt(
-    nickname: str, old_impression: str, samples: list[str],
+    nickname: str,
+    old_impression: str,
+    samples: list[str],
     persona_name: str = "小千",
 ) -> str:
     """构造印象汇总提示词（走一次廉价 LLM 调用）。

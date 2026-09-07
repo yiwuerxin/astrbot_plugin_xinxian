@@ -27,10 +27,10 @@ class FavorRecord:
     relationship: str = ""
     nickname: str = ""
     impression: str = ""
-    tags: str = ""          # JSON 数组字符串（如 '["毒舌","夜猫子"]'）
+    tags: str = ""  # JSON 数组字符串（如 '["毒舌","夜猫子"]'）
     impression_at: float = 0.0
     half_life: float = 10.0  # 遗忘曲线半衰期（天）；正互动巩固增长
-    points: str = "[]"       # P-C 印象带权点模型（JSON 数组字符串）
+    points: str = "[]"  # P-C 印象带权点模型（JSON 数组字符串）
 
     def parsed_points(self) -> list[dict]:
         """points JSON 字符串 → 印象点列表；损坏/空返回 []。"""

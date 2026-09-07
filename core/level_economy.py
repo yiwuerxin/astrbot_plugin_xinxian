@@ -34,25 +34,47 @@ DEFAULT_LEVEL_MULT: dict[str, float] = {
 # 是独立机制，随 preset 联动会混淆两个概念）。
 PRESETS: dict[str, dict] = {
     "default": {
-        "noise_floor": 0.5, "negative_weight": 1.5, "same_day_decay": 0.25,
+        "noise_floor": 0.5,
+        "negative_weight": 1.5,
+        "same_day_decay": 0.25,
         "level_mult": dict(DEFAULT_LEVEL_MULT),
-        "repair_threshold": 2.0, "repair_hours": 48.0, "repair_factor": 0.5,
+        "repair_threshold": 2.0,
+        "repair_hours": 48.0,
+        "repair_factor": 0.5,
     },
     "galgame": {
-        "noise_floor": 0.3, "negative_weight": 1.2, "same_day_decay": 0.15,
+        "noise_floor": 0.3,
+        "negative_weight": 1.2,
+        "same_day_decay": 0.15,
         "level_mult": {
-            "厌恶": 1.0, "陌生": 1.0, "认识": 1.0,
-            "友好": 0.9, "亲密": 0.75, "挚友": 0.55, "挚爱": 0.4,
+            "厌恶": 1.0,
+            "陌生": 1.0,
+            "认识": 1.0,
+            "友好": 0.9,
+            "亲密": 0.75,
+            "挚友": 0.55,
+            "挚爱": 0.4,
         },
-        "repair_threshold": 2.5, "repair_hours": 36.0, "repair_factor": 0.7,
+        "repair_threshold": 2.5,
+        "repair_hours": 36.0,
+        "repair_factor": 0.7,
     },
     "realistic": {
-        "noise_floor": 0.6, "negative_weight": 1.8, "same_day_decay": 0.35,
+        "noise_floor": 0.6,
+        "negative_weight": 1.8,
+        "same_day_decay": 0.35,
         "level_mult": {
-            "厌恶": 1.0, "陌生": 1.0, "认识": 0.9,
-            "友好": 0.6, "亲密": 0.4, "挚友": 0.25, "挚爱": 0.15,
+            "厌恶": 1.0,
+            "陌生": 1.0,
+            "认识": 0.9,
+            "友好": 0.6,
+            "亲密": 0.4,
+            "挚友": 0.25,
+            "挚爱": 0.15,
         },
-        "repair_threshold": 1.8, "repair_hours": 72.0, "repair_factor": 0.35,
+        "repair_threshold": 1.8,
+        "repair_hours": 72.0,
+        "repair_factor": 0.35,
     },
 }
 
@@ -81,7 +103,9 @@ class EconomyConfig:
     noise_floor: float = 0.5
     negative_weight: float = 1.5
     same_day_decay: float = 0.25
-    level_mult: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LEVEL_MULT))
+    level_mult: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_LEVEL_MULT)
+    )
     repair_threshold: float = 2.0
     repair_hours: float = 48.0
     repair_factor: float = 0.5
@@ -112,10 +136,14 @@ class EconomyConfig:
                 mult[name] = float(mult_raw[name])
         return cls(
             noise_floor=float(raw.get("noise_floor", preset["noise_floor"])),
-            negative_weight=float(raw.get("negative_weight", preset["negative_weight"])),
+            negative_weight=float(
+                raw.get("negative_weight", preset["negative_weight"])
+            ),
             same_day_decay=float(raw.get("same_day_decay", preset["same_day_decay"])),
             level_mult=mult,
-            repair_threshold=float(raw.get("repair_threshold", preset["repair_threshold"])),
+            repair_threshold=float(
+                raw.get("repair_threshold", preset["repair_threshold"])
+            ),
             repair_hours=float(raw.get("repair_hours", preset["repair_hours"])),
             repair_factor=float(raw.get("repair_factor", preset["repair_factor"])),
             repair_scale_high=max(1.0, float(raw.get("repair_scale_high", 1.5))),
@@ -128,10 +156,10 @@ class EconomyResult:
     """经济学层输出：最终 delta 与各环节标记（供日志/流水核对）。"""
 
     delta: float
-    floored: bool = False      # 被噪声地板归零
-    multiplied: bool = False   # 吃了阶段乘数或负面权重
-    decayed: bool = False      # 吃了同日重复衰减
-    repairing: bool = False    # 处于信任修复期（正分被压制）
+    floored: bool = False  # 被噪声地板归零
+    multiplied: bool = False  # 吃了阶段乘数或负面权重
+    decayed: bool = False  # 吃了同日重复衰减
+    repairing: bool = False  # 处于信任修复期（正分被压制）
 
 
 def apply(
