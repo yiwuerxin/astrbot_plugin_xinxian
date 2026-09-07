@@ -36,11 +36,36 @@ jobs:
           init = next(n for n in ast.walk(tree)
                       if isinstance(n, ast.FunctionDef) and n.name == '__init__')
           assigned = {}
+          def _mark(target, lineno):
+              # 赋值目标形态全覆盖：普通/增强/注解赋值、for/with 绑定、
+              # 推导式子句、except as、海象——漏一种就有"先用后定义"逃逸
+              if isinstance(target, ast.Name):
+                  assigned.setdefault(target.id, lineno)
+              elif isinstance(target, (ast.Tuple, ast.List)):
+                  for el in target.elts:
+                      _mark(el, lineno)
           for node in ast.walk(init):
               if isinstance(node, ast.Assign):
                   for t in node.targets:
-                      if isinstance(t, ast.Name):
-                          assigned.setdefault(t.id, node.lineno)
+                      _mark(t, node.lineno)
+              elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+                  _mark(node.target, node.lineno)
+              elif isinstance(node, (ast.For, ast.AsyncFor)):
+                  _mark(node.target, node.lineno)
+              elif isinstance(node, (ast.With, ast.AsyncWith)):
+                  for item in node.items:
+                      if item.optional_vars is not None:
+                          _mark(item.optional_vars, node.lineno)
+              elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+                  for g in node.generators:
+                      _mark(g.target, node.lineno)
+              elif isinstance(node, ast.DictComp):
+                  for g in node.generators:
+                      _mark(g.target, node.lineno)
+              elif isinstance(node, ast.ExceptHandler) and node.name:
+                  assigned.setdefault(node.name, node.lineno)
+              elif isinstance(node, ast.NamedExpr):
+                  _mark(node.target, node.lineno)
           bad = [n.id for n in ast.walk(init)
                  if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
                  and n.id in assigned and assigned[n.id] > n.lineno]
@@ -69,10 +94,13 @@ jobs:
       - name: 部署细节不得出现在提交文件（占位符规范）
         run: |
           # 排除模式定义所在的 ci.yml 自身；豁免 api/rank_image.py 的字体
-          # 候选探测路径（容器内其他插件字体目录，功能性绝对路径，非部署泄露）
+          # 候选探测路径（容器内其他插件字体目录，功能性绝对路径，非部署泄露）。
+          # 豁免方式是先把字体路径子串从行内剥掉、再复检部署模式——整行丢弃
+          # 会让"字体路径 + 真实部署细节"同行的泄漏一起被放过（Sourcery 审查）
           if git grep -nE '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot' -- . \
               | grep -vE '^\.github/workflows/ci\.yml:[0-9]+:' \
-              | grep -vE '^api/rank_image\.py:[0-9]+:.*fonts/'; then
+              | sed -E "s#[^'\":,[:space:]]*fonts/[^'\":,[:space:]]*##g" \
+              | grep -E '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot'; then
             echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 CLAUDE.md §1）"
             exit 1
           fi
@@ -80,9 +108,11 @@ jobs:
       - name: 疑似真实 QQ/群号扫描
         # 真实 QQ/群号均为 1 开头的 10 位数字；占位符白名单：123456789。
         # tests/ 豁免——夹具里的 1xxxxxxxxx 是合成时间戳与占位 QQ（评审红线
-        # 要求测试用 123456789/阿狸 等中性占位，PR 审阅时人工把关）
+        # 要求测试用 123456789/阿狸 等中性占位，PR 审阅时人工把关）。
+        # .github 只豁免本 ci.yml（模式定义自含 123456789）——整目录豁免会让
+        # 其他 workflow/配置文件里的真实号码逃过扫描（Sourcery 审查）
         run: |
-          if git grep -nE '\b1[0-9]{9}\b' -- . ':(exclude)tests' ':(exclude).github' \
+          if git grep -nE '\b1[0-9]{9}\b' -- . ':(exclude)tests' ':(exclude).github/workflows/ci.yml' \
               | grep -v 123456789; then
             echo "⛔ 疑似真实 QQ/群号（1 开头 10 位且非占位符 123456789），禁止合并"
             exit 1
