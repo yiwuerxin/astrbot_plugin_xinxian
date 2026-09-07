@@ -48,7 +48,11 @@ jobs:
               if isinstance(node, ast.Assign):
                   for t in node.targets:
                       _mark(t, node.lineno)
-              elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+              elif isinstance(node, ast.AugAssign):
+                  _mark(node.target, node.lineno)
+              elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                  # 纯注解（x: int 无值）不绑定运行时值，不记——记了会在
+                  # "注解在先、真赋值在后"时掩盖真实的先用后定义
                   _mark(node.target, node.lineno)
               elif isinstance(node, (ast.For, ast.AsyncFor)):
                   _mark(node.target, node.lineno)
@@ -56,12 +60,7 @@ jobs:
                   for item in node.items:
                       if item.optional_vars is not None:
                           _mark(item.optional_vars, node.lineno)
-              elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
-                  for g in node.generators:
-                      _mark(g.target, node.lineno)
-              elif isinstance(node, ast.DictComp):
-                  for g in node.generators:
-                      _mark(g.target, node.lineno)
+              # 推导式目标不记：Py3 推导式是独立作用域，不绑定 __init__ 局部名
               elif isinstance(node, ast.ExceptHandler) and node.name:
                   assigned.setdefault(node.name, node.lineno)
               elif isinstance(node, ast.NamedExpr):
@@ -95,11 +94,12 @@ jobs:
         run: |
           # 排除模式定义所在的 ci.yml 自身；豁免 api/rank_image.py 的字体
           # 候选探测路径（容器内其他插件字体目录，功能性绝对路径，非部署泄露）。
-          # 豁免方式是先把字体路径子串从行内剥掉、再复检部署模式——整行丢弃
-          # 会让"字体路径 + 真实部署细节"同行的泄漏一起被放过（Sourcery 审查）
+          # 豁免方式是先把字体路径子串从 api/rank_image.py 的行内剥掉、再复检部署
+          # 模式——整行丢弃会让"字体路径 + 真实部署细节"同行的泄漏一起被放过；
+          # 剥离限定该文件，其他文件的 fonts 形态串不能借此藏部署细节（Sourcery 审查）
           if git grep -nE '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot' -- . \
               | grep -vE '^\.github/workflows/ci\.yml:[0-9]+:' \
-              | sed -E "s#[^'\":,[:space:]]*fonts/[^'\":,[:space:]]*##g" \
+              | sed -E "/^api\/rank_image\.py:[0-9]+:/ s#[^'\":,[:space:]]*fonts/[^'\":,[:space:]]*##g" \
               | grep -E '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot'; then
             echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 CLAUDE.md §1）"
             exit 1
