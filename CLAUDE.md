@@ -14,10 +14,11 @@ Domain terms, config keys, commands, prompts, and code comments are **Chinese**;
 
 No build step and no third-party runtime deps — only the Python standard library plus the AstrBot framework (imported as `astrbot.api.*`). There is no `requirements.txt`, `pyproject.toml`, lint, or type-check config. The only extra is **Pillow** for rank-image rendering: `commands.build_rank_image` imports `api/rank_image.py` locally (and that module does `from PIL import …` at its top), so the plugin loads fine without Pillow — only rendering an image needs it.
 
-CI（`.github/workflows/ci.yml`，PR/push 触发）：pytest 矩阵（3.10/3.12，离线无 AstrBot）+ `main.py` `__init__` 赋值顺序 AST 检查 + 敏感数据与纯净交付检查（私有凭据/运行时数据禁跟踪、令牌模式、部署细节占位符规范、疑似真实 QQ/群号扫描——占位符白名单 `123456789`，`tests/` 豁免合成时间戳）。
+CI（PR/push 触发）：pytest 矩阵（3.10/3.12，离线无 AstrBot）+ `main.py` `__init__` 赋值顺序 AST 检查 + 敏感数据与纯净交付检查（私有凭据/运行时数据禁跟踪、令牌模式、部署细节占位符规范、疑似真实 QQ/群号扫描——占位符白名单 `123456789`，`tests/` 豁免合成时间戳，`.github` 只豁免 ci.yml 自身、rank_image 的 fonts 路径按子串剥离后复检）+ 代码格式检查（`format-check.yml`：black 26.5.1 锁版本，全库已完成格式化基线，新改动保持 black 干净）。另有 CodeQL 工作流占位（`codeql.yml`，仅手动触发——个人账号私有仓无 Advanced Security 无法运行；仓库转公开或组织 GHAS 后改回 push/pull_request 触发即生效）。
 
 ```bash
-pip install pytest                 # only test dependency
+pip install pytest black==26.5.1   # test + format-check dependencies
+black --check .                    # format gate (CI-enforced)
 pytest tests/ -v                   # run the full suite (count per pytest output)
 pytest tests/test_core.py::TestFavorService -v          # one test class
 pytest tests/test_core.py::TestMigration::test_v1_to_v2_round_trip -v   # one test
