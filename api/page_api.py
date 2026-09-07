@@ -41,12 +41,26 @@ class PageApi:
         if reg is None or jsonify is None:
             return
         reg(f"/{PLUGIN_NAME}/logs", self.handle_logs, ["GET"], "心弦 好感度变动记录")
-        reg(f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表")
+        reg(
+            f"/{PLUGIN_NAME}/groups", self.handle_groups, ["GET"], "心弦 有记录的群列表"
+        )
         reg(f"/{PLUGIN_NAME}/users", self.handle_users, ["GET"], "心弦 当前好感总览")
         # X7：带副作用的端点改 POST（GET 会被预取/缓存/分享 URL 误触发）
-        reg(f"/{PLUGIN_NAME}/undo", self.handle_undo, ["POST"], "心弦 撤销/预览一次变动")
-        reg(f"/{PLUGIN_NAME}/member", self.handle_member, ["GET"], "心弦 成员详情（印象/标签/近期评审）")
-        reg(f"/{PLUGIN_NAME}/refresh_impression", self.handle_refresh_impression, ["POST"], "心弦 立即刷新成员印象")
+        reg(
+            f"/{PLUGIN_NAME}/undo", self.handle_undo, ["POST"], "心弦 撤销/预览一次变动"
+        )
+        reg(
+            f"/{PLUGIN_NAME}/member",
+            self.handle_member,
+            ["GET"],
+            "心弦 成员详情（印象/标签/近期评审）",
+        )
+        reg(
+            f"/{PLUGIN_NAME}/refresh_impression",
+            self.handle_refresh_impression,
+            ["POST"],
+            "心弦 立即刷新成员印象",
+        )
 
     # ---------------- handlers ----------------
 
@@ -61,7 +75,9 @@ class PageApi:
             fuzzy = (request.args.get("fuzzy") or "").strip() == "1"
             limit = max(1, min(int(request.args.get("limit", 300)), 1000))
             offset = max(0, int(request.args.get("offset", 0)))
-            logs = await self._favor.query_logs(group_id, user_id, limit, offset, fuzzy=fuzzy)
+            logs = await self._favor.query_logs(
+                group_id, user_id, limit, offset, fuzzy=fuzzy
+            )
             return jsonify({"success": True, "logs": logs, "count": len(logs)})
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
@@ -94,23 +110,36 @@ class PageApi:
             rec = await self._favor.get(group_id, user_id)
             logs = await self._favor.query_logs(group_id, user_id, limit=30)
             judged = [r for r in logs if r.get("source") == "judge"][:10]
-            return jsonify({"success": True, "member": {
-                "group_id": group_id,
-                "user_id": user_id,
-                "nickname": rec.nickname or "",
-                "favor": rec.favor,
-                "level": self._favor.level_of(rec.favor).name,
-                "relationship": self._favor.relationship_label(rec.relationship) if rec.relationship else "",
-                "is_master": self._favor.is_master(user_id),
-                "impression": rec.impression or "",
-                "tags": rec.parsed_tags(),
-                "impression_at": rec.impression_at,
-                "recent_judges": [
-                    {"ts": r.get("ts"), "delta": r.get("delta"),
-                     "reason": r.get("reason") or "", "message": r.get("message") or ""}
-                    for r in judged
-                ],
-            }})
+            return jsonify(
+                {
+                    "success": True,
+                    "member": {
+                        "group_id": group_id,
+                        "user_id": user_id,
+                        "nickname": rec.nickname or "",
+                        "favor": rec.favor,
+                        "level": self._favor.level_of(rec.favor).name,
+                        "relationship": (
+                            self._favor.relationship_label(rec.relationship)
+                            if rec.relationship
+                            else ""
+                        ),
+                        "is_master": self._favor.is_master(user_id),
+                        "impression": rec.impression or "",
+                        "tags": rec.parsed_tags(),
+                        "impression_at": rec.impression_at,
+                        "recent_judges": [
+                            {
+                                "ts": r.get("ts"),
+                                "delta": r.get("delta"),
+                                "reason": r.get("reason") or "",
+                                "message": r.get("message") or "",
+                            }
+                            for r in judged
+                        ],
+                    },
+                }
+            )
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)})
 

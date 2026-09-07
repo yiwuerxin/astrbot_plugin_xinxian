@@ -20,7 +20,9 @@ LEVEL_NAME_BY_KEY: dict[str, str] = {
 }
 
 # 反查：领域名 → 配置键
-LEVEL_KEY_BY_NAME: dict[str, str] = {name: key for key, name in LEVEL_NAME_BY_KEY.items()}
+LEVEL_KEY_BY_NAME: dict[str, str] = {
+    name: key for key, name in LEVEL_NAME_BY_KEY.items()
+}
 
 # 评审五档：配置键（拼音）→ 档位名（judge.attitude_deltas.* 用）
 TIER_NAME_BY_KEY: dict[str, str] = {

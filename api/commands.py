@@ -13,7 +13,9 @@ from ..services.favor_service import FavorService
 from . import llm_tools
 
 
-async def handle_ranking(svc: FavorService, event: AstrMessageEvent, limit: int = 10) -> str:
+async def handle_ranking(
+    svc: FavorService, event: AstrMessageEvent, limit: int = 10
+) -> str:
     """/好感排行 —— 查本群榜单。"""
     return await llm_tools.tool_query_ranking(svc, event, limit)
 
@@ -29,7 +31,9 @@ async def handle_set(
     return f"已将 QQ {target} 在本群的好感度设置为 {fmt(rec.favor)}。"
 
 
-async def handle_reset(svc: FavorService, event: AstrMessageEvent, target: str = "") -> str:
+async def handle_reset(
+    svc: FavorService, event: AstrMessageEvent, target: str = ""
+) -> str:
     """/好感重置 [QQ号]（管理员）。不带参数清空整群。"""
     group_id = event.get_group_id()
     target = (target or "").strip()
@@ -70,7 +74,9 @@ async def handle_set_tags(
         await impressions.set_tags(event.get_group_id(), target, [])
         return f"已清除 QQ {target} 的标签。"
     await impressions.set_tags(event.get_group_id(), target, parts[:3])
-    return f"已将 QQ {target} 的标签设为：{'、'.join(p.strip()[:6] for p in parts[:3])}。"
+    return (
+        f"已将 QQ {target} 的标签设为：{'、'.join(p.strip()[:6] for p in parts[:3])}。"
+    )
 
 
 async def handle_refresh_impression(
@@ -81,29 +87,44 @@ async def handle_refresh_impression(
     if not target.isdigit():
         return "用法：/印象刷新 QQ号"
     _ok, msg = await impressions.refresh_now(
-        event.get_group_id(), target,
+        event.get_group_id(),
+        target,
         umo=getattr(event, "unified_msg_origin", "") or "",
     )
     return msg
 
 
 async def build_rank_image(
-    svc: FavorService, event: AstrMessageEvent, font_path: str = "", rows_per_col: int = 12
+    svc: FavorService,
+    event: AstrMessageEvent,
+    font_path: str = "",
+    rows_per_col: int = 12,
 ) -> str:
     """渲染本群好感度排行为图片（查询人高亮），返回临时 PNG 路径。"""
-    rows = await svc.standings(event.get_group_id(), limit=max(rows_per_col * 5, rows_per_col))
+    rows = await svc.standings(
+        event.get_group_id(), limit=max(rows_per_col * 5, rows_per_col)
+    )
     import asyncio
 
     from .rank_image import render_ranking
+
     # X8：同步 PIL 渲染放线程池，避免大图（几百 ms）阻塞事件循环
     return await asyncio.to_thread(
-        render_ranking, rows, event.get_sender_id(),
-        font_path=font_path, rows_per_col=rows_per_col)
+        render_ranking,
+        rows,
+        event.get_sender_id(),
+        font_path=font_path,
+        rows_per_col=rows_per_col,
+    )
 
 
 async def rank_reply(
-    svc: FavorService, event: AstrMessageEvent,
-    *, font_path: str = "", rows_per_col: int = 12, text_limit: int = 10,
+    svc: FavorService,
+    event: AstrMessageEvent,
+    *,
+    font_path: str = "",
+    rows_per_col: int = 12,
+    text_limit: int = 10,
 ) -> tuple[str, str]:
     """排行回复统一入口：优先图片（需 Pillow），未安装时降级文字排行。
 
@@ -131,6 +152,10 @@ async def try_text_wake(
         return None
     if msg in ranking_phrases:
         return await rank_reply(
-            svc, event, font_path=font_path, rows_per_col=rows_per_col, text_limit=text_limit
+            svc,
+            event,
+            font_path=font_path,
+            rows_per_col=rows_per_col,
+            text_limit=text_limit,
         )
     return None

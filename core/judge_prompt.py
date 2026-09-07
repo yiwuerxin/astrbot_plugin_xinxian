@@ -57,8 +57,13 @@ def roster_block(roster: str) -> str:
 
 
 def render(
-    template: str, *, text: str, persona_name: str, persona_prompt: str = "",
-    roster: str = "", tier_ranges: str = "",
+    template: str,
+    *,
+    text: str,
+    persona_name: str,
+    persona_prompt: str = "",
+    roster: str = "",
+    tier_ranges: str = "",
 ) -> str:
     """渲染评估模板。format 忽略模板未引用的占位符，
     旧的自定义模板（只含 {text}）无需改动即可继续使用。"""

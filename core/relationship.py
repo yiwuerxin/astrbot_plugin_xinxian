@@ -26,8 +26,12 @@ class RelationshipType:
 
 DEFAULT_TYPES: list[RelationshipType] = [
     RelationshipType("friend", "朋友", "把 TA 当朋友：平等、随和，可以开玩笑"),
-    RelationshipType("soulmate", "挚友", "把 TA 当无话不谈的知己：彼此袒护、情绪上依赖 TA"),
-    RelationshipType("lover", "恋人", "把 TA 当恋人：会吃醋、撒娇、依赖，把 TA 放在心上"),
+    RelationshipType(
+        "soulmate", "挚友", "把 TA 当无话不谈的知己：彼此袒护、情绪上依赖 TA"
+    ),
+    RelationshipType(
+        "lover", "恋人", "把 TA 当恋人：会吃醋、撒娇、依赖，把 TA 放在心上"
+    ),
     RelationshipType("family", "家人", "把 TA 当家人：自然亲近、不用客套"),
     RelationshipType("disliked", "讨厌的人", "反感 TA，保持距离、态度冷淡"),
 ]

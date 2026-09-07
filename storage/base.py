@@ -57,7 +57,9 @@ class StorageBackend(ABC):
         """直接设定好感度数值（精度一位小数）。"""
 
     @abstractmethod
-    async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
+    async def set_relationship(
+        self, group_id: str, user_id: str, relationship: str
+    ) -> None:
         """设定关系类型标签（不影响好感度数值）。空串表示清除。"""
 
     @abstractmethod
@@ -69,8 +71,14 @@ class StorageBackend(ABC):
         """写入印象点集（P-C 带权点模型；不改好感数值）。"""
 
     @abstractmethod
-    async def set_profile(self, group_id: str, user_id: str, impression: str,
-                          tags: list[str], points: list[dict]) -> None:
+    async def set_profile(
+        self,
+        group_id: str,
+        user_id: str,
+        impression: str,
+        tags: list[str],
+        points: list[dict],
+    ) -> None:
         """一次写入印象+标签+点集（P-C 原子档案更新；不改好感数值）。"""
 
     @abstractmethod
@@ -84,7 +92,9 @@ class StorageBackend(ABC):
         """群内好感度排行（降序）。"""
 
     @abstractmethod
-    async def list_favor(self, group_id: str | None = None, limit: int = 500) -> list[FavorRecord]:
+    async def list_favor(
+        self, group_id: str | None = None, limit: int = 500
+    ) -> list[FavorRecord]:
         """列出当前好感度记录（含 relationship）；group_id 为空则全部群，按 updated_at 倒序。"""
 
     @abstractmethod
@@ -102,11 +112,15 @@ class StorageBackend(ABC):
         """累加当日净增量。"""
 
     @abstractmethod
-    async def last_event_at(self, group_id: str, user_id: str, key: str) -> float | None:
+    async def last_event_at(
+        self, group_id: str, user_id: str, key: str
+    ) -> float | None:
         """某事件最近触发时间（epoch 秒），无记录返回 None。"""
 
     @abstractmethod
-    async def touch_event(self, group_id: str, user_id: str, key: str, ts: float) -> None:
+    async def touch_event(
+        self, group_id: str, user_id: str, key: str, ts: float
+    ) -> None:
         """记录事件触发时间。"""
 
     @abstractmethod

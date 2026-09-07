@@ -65,9 +65,7 @@ class FavorService:
         growth = max(1.0, float(half_life_growth))
         h_max = max(base, float(half_life_max))
         self._decay = (
-            (base, growth, h_max, float(decay_baseline))
-            if decay_enabled
-            else None
+            (base, growth, h_max, float(decay_baseline)) if decay_enabled else None
         )
         self._relationships = relationships
         self._economy = economy
@@ -79,9 +77,7 @@ class FavorService:
         try:
             import zoneinfo
 
-            self._tz = zoneinfo.ZoneInfo(
-                (tz_name or "").strip() or "Asia/Shanghai"
-            )
+            self._tz = zoneinfo.ZoneInfo((tz_name or "").strip() or "Asia/Shanghai")
         except Exception:
             self._tz = None
 
@@ -90,13 +86,21 @@ class FavorService:
     def _today(self, now: float | None = None) -> date:
         """配置时区下的"今天"（每日限幅/同日衰减的边界）。"""
         t = time.time() if now is None else now
-        dt = datetime.fromtimestamp(t, self._tz) if self._tz else datetime.fromtimestamp(t)
+        dt = (
+            datetime.fromtimestamp(t, self._tz)
+            if self._tz
+            else datetime.fromtimestamp(t)
+        )
         return dt.date()
 
     def _day_start(self, now: float | None = None) -> float:
         """配置时区下今天 0 点的 epoch 秒。"""
         d = self._today(now)
-        dt = datetime(d.year, d.month, d.day, tzinfo=self._tz) if self._tz else datetime(d.year, d.month, d.day)
+        dt = (
+            datetime(d.year, d.month, d.day, tzinfo=self._tz)
+            if self._tz
+            else datetime(d.year, d.month, d.day)
+        )
         return dt.timestamp()
 
     def _decay_floor(self, stored: float, baseline: float) -> float | None:
@@ -110,13 +114,17 @@ class FavorService:
         if not self._decay_floor_enabled:
             return None
         levels = self._levels.all()
-        idx = next((i for i, lv in enumerate(levels) if lv is self._levels.level_of(stored)), 0)
+        idx = next(
+            (i for i, lv in enumerate(levels) if lv is self._levels.level_of(stored)), 0
+        )
         if idx < 2:
             return None
         floor = levels[idx - 2].min_score
         return floor if floor > baseline else None
 
-    def _effective(self, stored: float, updated_at: float, half_life: float = 10.0) -> float:
+    def _effective(
+        self, stored: float, updated_at: float, half_life: float = 10.0
+    ) -> float:
         """读取时的有效好感度（启用衰减时按指数遗忘曲线向基线收敛）。
 
         half_life 取自该成员记录（正互动巩固过的老朋友衰减更慢）；
@@ -126,7 +134,9 @@ class FavorService:
             return round1(stored)
         base, _growth, _h_max, baseline = self._decay
         return effective_favor(
-            stored, updated_at, time.time(),
+            stored,
+            updated_at,
+            time.time(),
             half_life=(half_life if half_life and half_life > 0 else base),
             baseline=baseline,
             floor=self._decay_floor(stored, baseline),
@@ -137,8 +147,10 @@ class FavorService:
         rec = await self._storage.get(group_id, user_id)
         if rec is None:
             rec = FavorRecord(
-                group_id=group_id, user_id=user_id,
-                favor=self.default_favor, updated_at=0.0,
+                group_id=group_id,
+                user_id=user_id,
+                favor=self.default_favor,
+                updated_at=0.0,
             )
         else:
             rec.favor = self._effective(rec.favor, rec.updated_at, rec.half_life)
@@ -147,11 +159,15 @@ class FavorService:
     async def ranking(self, group_id: str, limit: int = 10) -> list[FavorRecord]:
         rows = await self._storage.ranking(group_id, limit)
         for r in rows:
-            r.favor = self._effective(r.favor, r.updated_at, getattr(r, "half_life", 10.0))
+            r.favor = self._effective(
+                r.favor, r.updated_at, getattr(r, "half_life", 10.0)
+            )
         rows.sort(key=lambda r: r.favor, reverse=True)
         return rows
 
-    async def standings(self, group_id: str | None = None, limit: int = 500) -> list[dict]:
+    async def standings(
+        self, group_id: str | None = None, limit: int = 500
+    ) -> list[dict]:
         """当前总览：每个成员的有效好感/等级/关系/闲置天数（供 WebUI）。按有效好感降序。"""
         recs = await self._storage.list_favor(group_id, limit)
         now = time.time()
@@ -159,21 +175,27 @@ class FavorService:
         for r in recs:
             eff = self._effective(r.favor, r.updated_at, r.half_life)
             idle = int((now - r.updated_at) // 86400) if r.updated_at > 0 else None
-            out.append({
-                "group_id": r.group_id,
-                "user_id": r.user_id,
-                "favor": eff,
-                "stored_favor": round1(r.favor),
-                "decayed": round1(r.favor) != eff,
-                "level": self.level_of(eff).name,
-                "relationship": self.relationship_label(r.relationship) if r.relationship else "",
-                "nickname": r.nickname or "",
-                "impression": r.impression or "",
-                "tags": r.parsed_tags(),
-                "impression_at": r.impression_at,
-                "updated_at": r.updated_at,
-                "idle_days": idle,
-            })
+            out.append(
+                {
+                    "group_id": r.group_id,
+                    "user_id": r.user_id,
+                    "favor": eff,
+                    "stored_favor": round1(r.favor),
+                    "decayed": round1(r.favor) != eff,
+                    "level": self.level_of(eff).name,
+                    "relationship": (
+                        self.relationship_label(r.relationship)
+                        if r.relationship
+                        else ""
+                    ),
+                    "nickname": r.nickname or "",
+                    "impression": r.impression or "",
+                    "tags": r.parsed_tags(),
+                    "impression_at": r.impression_at,
+                    "updated_at": r.updated_at,
+                    "idle_days": idle,
+                }
+            )
         out.sort(key=lambda x: x["favor"], reverse=True)
         return out
 
@@ -189,12 +211,16 @@ class FavorService:
             return value or ""
         return self._relationships.label_of(value)
 
-    async def set_relationship(self, group_id: str, user_id: str, relationship: str) -> None:
+    async def set_relationship(
+        self, group_id: str, user_id: str, relationship: str
+    ) -> None:
         """设定关系类型标签；无记录时先按默认好感建一条再设（不影响好感数值）。"""
         rec = await self._storage.get(group_id, user_id)
         if rec is None:
             await self._storage.set_value(group_id, user_id, self.default_favor)
-        await self._storage.set_relationship(group_id, user_id, (relationship or "").strip())
+        await self._storage.set_relationship(
+            group_id, user_id, (relationship or "").strip()
+        )
 
     async def touch_nickname(self, group_id: str, user_id: str, nickname: str) -> None:
         """更新成员昵称；带内存缓存，昵称未变不写库（不影响好感数值）。
@@ -219,17 +245,30 @@ class FavorService:
         """有记录的群列表（面板群筛选用；storage 透传，X7 面板不直拿存储）。"""
         return await self._storage.distinct_groups()
 
-    async def query_logs(self, group_id: str, user_id: str, limit: int = 20,
-                         offset: int = 0, fuzzy: bool = False) -> list[dict]:
+    async def query_logs(
+        self,
+        group_id: str,
+        user_id: str,
+        limit: int = 20,
+        offset: int = 0,
+        fuzzy: bool = False,
+    ) -> list[dict]:
         """流水查询透传（注入链路一次拉取，milestone/recent_events 共用）。
 
         fuzzy=True 仅供面板搜索（子串匹配）；内部路径一律精确。"""
         return await self._storage.query_logs(
-            group_id, user_id, limit=limit, offset=offset, fuzzy=fuzzy)
+            group_id, user_id, limit=limit, offset=offset, fuzzy=fuzzy
+        )
 
     async def recent_events(
-        self, group_id: str, user_id: str, count: int = 3, days: int = 7,
-        *, sig_threshold: float = 0.0, sig_window_mult: float = 1.0,
+        self,
+        group_id: str,
+        user_id: str,
+        count: int = 3,
+        days: int = 7,
+        *,
+        sig_threshold: float = 0.0,
+        sig_window_mult: float = 1.0,
         logs: list[dict] | None = None,
     ) -> list[dict]:
         """最近 count 条变动流水（倒序），供注入「近期印象」。
@@ -241,8 +280,12 @@ class FavorService:
         """
         if not count or count <= 0:
             return []
-        rows = logs if logs is not None else await self._storage.query_logs(
-            group_id, user_id, limit=max(count * 5, count)
+        rows = (
+            logs
+            if logs is not None
+            else await self._storage.query_logs(
+                group_id, user_id, limit=max(count * 5, count)
+            )
         )
         rows = [r for r in rows if not r.get("reversed")]
         if days and days > 0:
@@ -251,7 +294,10 @@ class FavorService:
             sig_cutoff = now - days * 86400 * max(1.0, sig_window_mult)
 
             def _in_window(r: dict) -> bool:
-                if sig_threshold > 0 and abs(float(r.get("delta") or 0)) >= sig_threshold:
+                if (
+                    sig_threshold > 0
+                    and abs(float(r.get("delta") or 0)) >= sig_threshold
+                ):
                     return r.get("ts", 0) >= sig_cutoff
                 return r.get("ts", 0) >= normal_cutoff
 
@@ -259,7 +305,10 @@ class FavorService:
         return rows[:count]
 
     def recent_milestone(
-        self, group_id: str, user_id: str, logs: list[dict] | None = None,
+        self,
+        group_id: str,
+        user_id: str,
+        logs: list[dict] | None = None,
         hours: float = 48.0,
     ) -> tuple[str, float] | None:
         """最近 hours 小时内的等级跨越（升级里程碑），返回 (新等级名, ts)。
@@ -294,8 +343,13 @@ class FavorService:
     # ---------- 增减 ----------
 
     async def apply_judge(
-        self, group_id: str, user_id: str, delta: float, reason: str = "judge",
-        *, message: str = "",
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        reason: str = "judge",
+        *,
+        message: str = "",
     ) -> FavorChange:
         """应用 LLM 评估结果（judge 的冷却在 JudgeService 里处理）。
 
@@ -309,14 +363,22 @@ class FavorService:
             level_name = self.level_of(rec0.favor).name
             pos_today = await self._positive_judge_today(group_id, user_id)
             repair = await self._repair_window(group_id, user_id)
-            eco = apply_economy(delta, level_name, pos_today, self._economy, repair=repair)
+            eco = apply_economy(
+                delta, level_name, pos_today, self._economy, repair=repair
+            )
             if eco.delta == 0:
-                return FavorChange(0, reason, "judge", clamped=True, favor_after=rec0.favor)
+                return FavorChange(
+                    0, reason, "judge", clamped=True, favor_after=rec0.favor
+                )
             delta = eco.delta
         change = await self._apply_one(
-            group_id, user_id, delta,
-            cooldown_key=None, cooldown_sec=0,
-            reason=reason, source="judge",
+            group_id,
+            user_id,
+            delta,
+            cooldown_key=None,
+            cooldown_sec=0,
+            reason=reason,
+            source="judge",
             message=(message or "")[:200],
         )
         return change
@@ -327,7 +389,8 @@ class FavorService:
             start = self._day_start()
             logs = await self._storage.query_logs(group_id, user_id, limit=50)
             return sum(
-                1 for r in logs
+                1
+                for r in logs
                 if r.get("source") == "judge"
                 and float(r.get("delta") or 0) > 0
                 and float(r.get("ts") or 0) >= start
@@ -365,14 +428,22 @@ class FavorService:
             return False
 
     async def change(
-        self, group_id: str, user_id: str, delta: float,
-        reason: str = "api", source: str = "api",
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        reason: str = "api",
+        source: str = "api",
     ) -> FavorChange:
         """通用增减入口（跨插件 API / 指令使用，无事件冷却，仍受每日限幅）。"""
         return await self._apply_one(
-            group_id, user_id, delta,
-            cooldown_key=None, cooldown_sec=0,
-            reason=reason, source=source,
+            group_id,
+            user_id,
+            delta,
+            cooldown_key=None,
+            cooldown_sec=0,
+            reason=reason,
+            source=source,
         )
 
     async def _apply_one(
@@ -393,7 +464,9 @@ class FavorService:
             last = await self._storage.last_event_at(group_id, user_id, cooldown_key)
             if last is not None and now - last < cooldown_sec:
                 rec = await self.get(group_id, user_id)
-                return FavorChange(0, reason, source, clamped=True, favor_after=rec.favor)
+                return FavorChange(
+                    0, reason, source, clamped=True, favor_after=rec.favor
+                )
         # 2. 每日双向限幅
         allowed, capped = await self._cap_by_daily(group_id, user_id, delta)
         if allowed == 0:
@@ -402,23 +475,37 @@ class FavorService:
         # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛；
         #    无记录时以 default_favor 为基数，而非 0）
         rec, real = await self._storage.apply_delta(
-            group_id, user_id, allowed, self.max_favor, self.min_favor,
-            decay=self._decay, default_favor=self.default_favor,
+            group_id,
+            user_id,
+            allowed,
+            self.max_favor,
+            self.min_favor,
+            decay=self._decay,
+            default_favor=self.default_favor,
         )
         if real:
             await self._storage.add_daily_gain(
                 group_id, user_id, self._today().isoformat(), real
             )
             await self._storage.add_log(
-                group_id, user_id, real,
-                round1(rec.favor - real), rec.favor,
-                reason, source, now, message,
+                group_id,
+                user_id,
+                real,
+                round1(rec.favor - real),
+                rec.favor,
+                reason,
+                source,
+                now,
+                message,
             )
         if cooldown_key:
             await self._storage.touch_event(group_id, user_id, cooldown_key, now)
         return FavorChange(
-            real, reason, source,
-            clamped=capped or real != allowed, favor_after=rec.favor,
+            real,
+            reason,
+            source,
+            clamped=capped or real != allowed,
+            favor_after=rec.favor,
         )
 
     async def _cap_by_daily(
@@ -442,8 +529,12 @@ class FavorService:
     # ---------- 管理 ----------
 
     async def set_favor(
-        self, group_id: str, user_id: str, value: float,
-        source: str = "admin", reason: str = "set",
+        self,
+        group_id: str,
+        user_id: str,
+        value: float,
+        source: str = "admin",
+        reason: str = "set",
     ) -> FavorRecord:
         """直接设定好感度（管理员/撤销用，绕过每日限幅，硬钳到值域）。
 
@@ -456,7 +547,14 @@ class FavorService:
         delta = round1(value - before.favor)
         if delta != 0:
             await self._storage.add_log(
-                group_id, user_id, delta, before.favor, value, reason, source, time.time()
+                group_id,
+                user_id,
+                delta,
+                before.favor,
+                value,
+                reason,
+                source,
+                time.time(),
             )
         return rec
 
@@ -488,7 +586,8 @@ class FavorService:
         """
         info = await self._storage.apply_undo(
             log_id,
-            max_favor=self.max_favor, min_favor=self.min_favor,
+            max_favor=self.max_favor,
+            min_favor=self.min_favor,
             effective=(self._effective if self._decay is not None else None),
             default_favor=self.default_favor,
         )

@@ -9,7 +9,9 @@ from .models import LevelDef
 from .naming import LEVEL_KEY_BY_NAME
 
 DEFAULT_LEVELS: list[LevelDef] = [
-    LevelDef("厌恶", -100, -1, "反感与回避，冷淡敷衍，抗拒亲近，语气生硬拒人于千里之外"),
+    LevelDef(
+        "厌恶", -100, -1, "反感与回避，冷淡敷衍，抗拒亲近，语气生硬拒人于千里之外"
+    ),
     LevelDef("陌生", 0, 9, "礼貌而疏离，保持分寸，不主动亲昵"),
     LevelDef("认识", 10, 29, "友善客气，像刚认识的朋友"),
     LevelDef("友好", 30, 54, "放松自然，会开玩笑、主动接话"),
@@ -89,8 +91,7 @@ class LevelTable:
                         item.get("disclosure") or DEFAULT_DISCLOSURE[default.name]
                     ),
                     interaction=str(
-                        item.get("interaction")
-                        or DEFAULT_INTERACTION[default.name]
+                        item.get("interaction") or DEFAULT_INTERACTION[default.name]
                     ),
                 )
             )

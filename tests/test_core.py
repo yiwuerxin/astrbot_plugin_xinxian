@@ -35,19 +35,27 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from astrbot_plugin_xinxian.core.config_migrations import migrate_saved_defaults  # noqa: E402
+from astrbot_plugin_xinxian.core.config_migrations import (
+    migrate_saved_defaults,
+)  # noqa: E402
 from astrbot_plugin_xinxian.core.decay import effective_favor  # noqa: E402
 from astrbot_plugin_xinxian.core.decimal import fmt, round1  # noqa: E402
-from astrbot_plugin_xinxian.core.identity import is_master, parse_master_ids  # noqa: E402
+from astrbot_plugin_xinxian.core.identity import (
+    is_master,
+    parse_master_ids,
+)  # noqa: E402
 from astrbot_plugin_xinxian.core.levels import LevelTable  # noqa: E402
 from astrbot_plugin_xinxian.core.relationship import RelationshipTable  # noqa: E402
 from astrbot_plugin_xinxian.core.models import FavorRecord  # noqa: E402
 from astrbot_plugin_xinxian.services.favor_service import FavorService  # noqa: E402
-from astrbot_plugin_xinxian.storage.migrations import SCHEMA_VERSION, migrate  # noqa: E402
+from astrbot_plugin_xinxian.storage.migrations import (
+    SCHEMA_VERSION,
+    migrate,
+)  # noqa: E402
 from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend  # noqa: E402
 
-
 # ---------------- 等级表 ----------------
+
 
 class TestLevelTable:
     def setup_method(self):
@@ -76,14 +84,14 @@ class TestLevelTable:
 
     def test_master_guidance_defaults(self):
         # 主人版指引语义按正负分界：负值＝闹别扭；正值＝正面关系的亲疏程度
-        assert "别扭" in self.table.guidance_of(-50, master=True)   # 厌恶（负值才别扭）
-        assert "生分" in self.table.guidance_of(5, master=True)    # 陌生：生分但不生气
+        assert "别扭" in self.table.guidance_of(-50, master=True)  # 厌恶（负值才别扭）
+        assert "生分" in self.table.guidance_of(5, master=True)  # 陌生：生分但不生气
         assert "不生气" in self.table.guidance_of(5, master=True)
         assert "温和亲近" in self.table.guidance_of(15.0, master=True)  # 认识：正面升温
-        assert "撒娇" in self.table.guidance_of(40, master=True)   # 友好
-        assert "黏人" in self.table.guidance_of(60, master=True)   # 亲密
-        assert "护主人" in self.table.guidance_of(85, master=True) # 挚友
-        assert "毫无保留" in self.table.guidance_of(99, master=True) # 挚爱
+        assert "撒娇" in self.table.guidance_of(40, master=True)  # 友好
+        assert "黏人" in self.table.guidance_of(60, master=True)  # 亲密
+        assert "护主人" in self.table.guidance_of(85, master=True)  # 挚友
+        assert "毫无保留" in self.table.guidance_of(99, master=True)  # 挚爱
         # 正值低段不得出现冲突叙事（别扭/冷战期/和好）；「不冷战」这类明确否定除外
         for favor in (5, 15.0, 40):
             g = self.table.guidance_of(favor, master=True)
@@ -104,13 +112,13 @@ class TestLevelTable:
 
     def test_disclosure_defaults(self):
         # 表露分寸随等级递进：浅层不袒露，深层袒露心底话
-        assert "不袒露" in self.table.disclosure_of(-50)      # 厌恶
-        assert "不主动" in self.table.disclosure_of(5)        # 陌生
-        assert "日常小事" in self.table.disclosure_of(15.0)   # 认识
-        assert "趣事" in self.table.disclosure_of(40)         # 友好
-        assert "倾诉" in self.table.disclosure_of(60)         # 亲密
-        assert "心底话" in self.table.disclosure_of(85)       # 挚友
-        assert "毫无保留" in self.table.disclosure_of(99)     # 挚爱
+        assert "不袒露" in self.table.disclosure_of(-50)  # 厌恶
+        assert "不主动" in self.table.disclosure_of(5)  # 陌生
+        assert "日常小事" in self.table.disclosure_of(15.0)  # 认识
+        assert "趣事" in self.table.disclosure_of(40)  # 友好
+        assert "倾诉" in self.table.disclosure_of(60)  # 亲密
+        assert "心底话" in self.table.disclosure_of(85)  # 挚友
+        assert "毫无保留" in self.table.disclosure_of(99)  # 挚爱
 
     def test_disclosure_custom(self):
         table = LevelTable.from_config(
@@ -121,6 +129,7 @@ class TestLevelTable:
 
 
 # ---------------- 身份 ----------------
+
 
 class TestIdentity:
     def test_parse(self):
@@ -171,10 +180,27 @@ class TestInject:
 
         assert InjectService.validate_template("好感 {favor}（{level_name}）") is None
         # 全占位符的合法模板
-        full = "{" + "}{".join([
-            "nickname", "user_id", "master_line", "favor", "max_favor", "level_name",
-            "level_guidance", "disclosure", "interaction", "recent_events",
-            "relationship", "impression", "milestone"]) + "}"
+        full = (
+            "{"
+            + "}{".join(
+                [
+                    "nickname",
+                    "user_id",
+                    "master_line",
+                    "favor",
+                    "max_favor",
+                    "level_name",
+                    "level_guidance",
+                    "disclosure",
+                    "interaction",
+                    "recent_events",
+                    "relationship",
+                    "impression",
+                    "milestone",
+                ]
+            )
+            + "}"
+        )
         assert InjectService.validate_template(full) is None
         # 未知占位符 / 位置参数 / 转义大括号（合法）
         err = InjectService.validate_template("JSON 示例 {foo}")
@@ -218,7 +244,9 @@ class TestInject:
         rec = FavorRecord("g", "u", 80, 0.0, "lover")
         assert "你们的关系：恋人" in inj.build_block(rec, is_master=False)
         # 未设置关系时不出现
-        assert "你们的关系" not in inj.build_block(FavorRecord("g", "u", 80), is_master=False)
+        assert "你们的关系" not in inj.build_block(
+            FavorRecord("g", "u", 80), is_master=False
+        )
 
     def test_block_with_persona_anchor(self):
         from astrbot_plugin_xinxian.services.inject_service import InjectService
@@ -232,7 +260,9 @@ class TestInject:
         assert "钉住性格" in block and "不要承认这是设定" in block
         # 未设锚时不出现
         inj0 = InjectService(LevelTable.from_config(None), "档案：{favor}")
-        assert "钉住" not in inj0.build_block(FavorRecord("g", "u", 50), is_master=False)
+        assert "钉住" not in inj0.build_block(
+            FavorRecord("g", "u", 50), is_master=False
+        )
 
     def test_block_master_line_default(self):
         from astrbot_plugin_xinxian.services.inject_service import InjectService
@@ -244,7 +274,9 @@ class TestInject:
         assert "闹别扭" in block
         assert "你的主人" in block  # {master_title} 替换为默认"主人"
         # 非主人不出现主人提示
-        assert "主人身份恒定" not in inj.build_block(FavorRecord("g", "u", 50), is_master=False)
+        assert "主人身份恒定" not in inj.build_block(
+            FavorRecord("g", "u", 50), is_master=False
+        )
 
     def test_block_master_line_custom(self):
         from astrbot_plugin_xinxian.services.inject_service import InjectService
@@ -284,12 +316,16 @@ class TestInject:
 
 # ---------------- 好感度增减（内存级 SQLite） ----------------
 
+
 def _make_service(tmp_path, **kw) -> FavorService:
     storage = SQLiteBackend(tmp_path / "test.db")
     asyncio.run(storage.init())
     defaults = dict(
-        max_favor=100, min_favor=-100, default_favor=0,
-        daily_cap_up=15, daily_cap_down=15,
+        max_favor=100,
+        min_favor=-100,
+        default_favor=0,
+        daily_cap_up=15,
+        daily_cap_down=15,
     )
     defaults.update(kw)
     return FavorService(storage, LevelTable.from_config(None), **defaults)
@@ -344,8 +380,8 @@ class TestFavorService:
         svc = _make_service(tmp_path, daily_cap_up=0.3)
         asyncio.run(svc.change("g1", "u1", 0.1))
         ch = asyncio.run(svc.change("g1", "u1", 0.2))
-        assert ch.delta == 0.2       # 0.2 在 0.3 额度内，全额生效
-        assert ch.clamped is False   # 不应被浮点噪声误判为截断
+        assert ch.delta == 0.2  # 0.2 在 0.3 额度内，全额生效
+        assert ch.clamped is False  # 不应被浮点噪声误判为截断
 
     def test_yanwu_level_mapping(self, tmp_path):
         svc = _make_service(tmp_path)
@@ -439,11 +475,14 @@ class TestFavorService:
         ev = asyncio.run(svc.recent_events("g1", "u1", count=3, days=7))
         assert len(ev) == 1 and ev[0]["delta"] == 1.2
         assert asyncio.run(svc.recent_events("g1", "u1", count=0)) == []  # 关闭
-        assert asyncio.run(svc.recent_events("g2", "u1", count=3, days=7)) == []  # 每群独立
+        assert (
+            asyncio.run(svc.recent_events("g2", "u1", count=3, days=7)) == []
+        )  # 每群独立
 
     def test_recent_events_significance_weighting(self, tmp_path):
         # 显著事件（|delta|≥阈值）记忆窗口延长：10 天前的大冲突仍在 7 天窗口外、3× 窗口内
         import time as _t
+
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 0.4, reason="寒暄", source="judge"))
         logs = asyncio.run(svc._storage.query_logs("g1", "u1"))
@@ -452,15 +491,22 @@ class TestFavorService:
         with svc._storage._lock:
             svc._storage._c().execute(
                 "insert into favor_log (group_id,user_id,delta,favor_before,favor_after,reason,source,ts) "
-                "values ('g1','u1',-2.5,0,-2.5,'重骂','judge',?)", (old_ts,))
+                "values ('g1','u1',-2.5,0,-2.5,'重骂','judge',?)",
+                (old_ts,),
+            )
             svc._storage._c().commit()
-        ev = asyncio.run(svc.recent_events(
-            "g1", "u1", count=3, days=7, sig_threshold=1.0, sig_window_mult=3.0))
+        ev = asyncio.run(
+            svc.recent_events(
+                "g1", "u1", count=3, days=7, sig_threshold=1.0, sig_window_mult=3.0
+            )
+        )
         deltas = [r["delta"] for r in ev]
         assert -2.5 in deltas  # 10 天前的大冲突仍在 3× 记忆窗口内
         assert 0.4 in deltas  # 刚发生的普通事件当然也在
         ev_default = asyncio.run(svc.recent_events("g1", "u1", count=3, days=7))
-        assert -2.5 not in [r["delta"] for r in ev_default]  # 未开启加权时 10 天前已淡忘
+        assert -2.5 not in [
+            r["delta"] for r in ev_default
+        ]  # 未开启加权时 10 天前已淡忘
 
     def test_recent_events_skips_reversed(self, tmp_path):
         # 已撤销的变动不作为记忆注入
@@ -468,7 +514,8 @@ class TestFavorService:
         asyncio.run(svc.change("g1", "u1", 1.5, reason="夸", source="judge"))
         with svc._storage._lock:
             svc._storage._c().execute(
-                "update favor_log set reversed = 1 where group_id='g1' and user_id='u1'")
+                "update favor_log set reversed = 1 where group_id='g1' and user_id='u1'"
+            )
             svc._storage._c().commit()
         assert asyncio.run(svc.recent_events("g1", "u1", count=3, days=7)) == []
 
@@ -524,7 +571,10 @@ class TestFavorService:
         asyncio.run(svc.set_favor("g1", "u1", 50))
         asyncio.run(svc.set_favor("g2", "u1", 50))
         asyncio.run(svc.set_favor("g1", "u2", 50))
-        gmap = {g["group_id"]: g["count"] for g in asyncio.run(svc._storage.distinct_groups())}
+        gmap = {
+            g["group_id"]: g["count"]
+            for g in asyncio.run(svc._storage.distinct_groups())
+        }
         assert gmap == {"g1": 2, "g2": 1}
 
     def test_set_nickname(self, tmp_path):
@@ -538,7 +588,11 @@ class TestFavorService:
 
     def test_log_records_message(self, tmp_path):
         svc = _make_service(tmp_path)
-        asyncio.run(svc._storage.add_log("g1", "u1", 1.0, 0.0, 1.0, "夸", "judge", 0.0, message="你好呀"))
+        asyncio.run(
+            svc._storage.add_log(
+                "g1", "u1", 1.0, 0.0, 1.0, "夸", "judge", 0.0, message="你好呀"
+            )
+        )
         rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
         assert rows[0]["message"] == "你好呀"
         assert rows[0]["reversed"] is False
@@ -547,8 +601,11 @@ class TestFavorService:
         # 数据最小化：message/reason 落库前截断到 200 字符（存储层兜底所有调用路径）
         svc = _make_service(tmp_path)
         long_msg, long_reason = "很" * 500, "理" * 300
-        asyncio.run(svc._storage.add_log(
-            "g1", "u1", 1.0, 0.0, 1.0, long_reason, "judge", 0.0, message=long_msg))
+        asyncio.run(
+            svc._storage.add_log(
+                "g1", "u1", 1.0, 0.0, 1.0, long_reason, "judge", 0.0, message=long_msg
+            )
+        )
         rows = asyncio.run(svc._storage.query_logs("g1", "u1"))
         assert len(rows[0]["message"]) == 200
         assert len(rows[0]["reason"]) == 200
@@ -597,8 +654,11 @@ class TestFavorService:
             seen.append(stored)
             return stored - 2.0  # 模拟两天衰减读值（纯函数投影）
 
-        info = asyncio.run(svc._storage.apply_undo(
-            log_id, max_favor=100, min_favor=-100, effective=eff))
+        info = asyncio.run(
+            svc._storage.apply_undo(
+                log_id, max_favor=100, min_favor=-100, effective=eff
+            )
+        )
         assert seen == [5.0] and info["before"] == 3.0
         # 撤销 +5 的流水：有效值 3 − 5 = −2，实际变动 −5
         assert info["after"] == -2.0 and info["delta"] == -5.0
@@ -611,18 +671,22 @@ class TestFavorService:
         with svc._storage._lock:
             svc._storage._c().execute(
                 "INSERT INTO favor_log(group_id,user_id,delta,favor_before,"
-                "favor_after,reason,source,ts) VALUES('g','u',-5,105,100,'r','api',1)")
+                "favor_after,reason,source,ts) VALUES('g','u',-5,105,100,'r','api',1)"
+            )
             svc._storage._c().commit()
-            neg_id = svc._storage._c().execute(
-                "SELECT last_insert_rowid()").fetchone()[0]
+            neg_id = (
+                svc._storage._c().execute("SELECT last_insert_rowid()").fetchone()[0]
+            )
         before_count = len(asyncio.run(svc._storage.query_logs("g", "u")))
-        info2 = asyncio.run(svc._storage.apply_undo(
-            neg_id, max_favor=100, min_favor=-100))
+        info2 = asyncio.run(
+            svc._storage.apply_undo(neg_id, max_favor=100, min_favor=-100)
+        )
         assert info2["delta"] == 0.0 and info2["after"] == 100.0
         after_rows = asyncio.run(svc._storage.query_logs("g", "u"))
         assert len(after_rows) == before_count  # 零流水未追加
         orig = next(r for r in after_rows if r["id"] == neg_id)
         assert orig["reversed"] is True  # 但原行已标记
+
     def test_undo_already_reversed(self, tmp_path):
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 5, source="api"))
@@ -635,9 +699,9 @@ class TestFavorService:
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 5, source="api"))
         orig_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
-        asyncio.run(svc.undo_log(orig_id))                       # favor 0
+        asyncio.run(svc.undo_log(orig_id))  # favor 0
         undo_id = asyncio.run(svc._storage.query_logs("g1", "u1"))[0]["id"]
-        asyncio.run(svc.undo_log(undo_id))                       # 撤销 undo = 重做
+        asyncio.run(svc.undo_log(undo_id))  # 撤销 undo = 重做
         assert asyncio.run(svc.get("g1", "u1")).favor == 5
 
     def test_undo_preview(self, tmp_path):
@@ -659,6 +723,7 @@ class TestFavorService:
 
 
 # ---------------- 一位小数工具 ----------------
+
 
 class TestDecimal:
     def test_round1(self):
@@ -700,7 +765,9 @@ class TestDecay:
         # 老朋友 h=60：静默 30 天保留 70%；新关系 h=10 只剩 12.5%
         now = 86400 * 100
         updated = now - 86400 * 30
-        assert effective_favor(80, updated, now, half_life=60, baseline=0) == round(80 * 0.5 ** 0.5, 1)
+        assert effective_favor(80, updated, now, half_life=60, baseline=0) == round(
+            80 * 0.5**0.5, 1
+        )
         assert effective_favor(80, updated, now, half_life=10, baseline=0) == 10.0
 
     def test_baseline_convergence_no_cross(self):
@@ -721,7 +788,9 @@ class TestDecay:
 
     def test_future_or_zero_time_noop(self):
         assert effective_favor(80, 1000, 1000, half_life=10, baseline=0) == 80
-        assert effective_favor(80, 2000, 1000, half_life=10, baseline=0) == 80  # 时间倒流防御
+        assert (
+            effective_favor(80, 2000, 1000, half_life=10, baseline=0) == 80
+        )  # 时间倒流防御
 
 
 class TestConsolidate:
@@ -743,7 +812,9 @@ class TestConsolidate:
         from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
 
         assert ch(30, base=10, growth=1.3, h_max=60, positive=False) == 30.0
-        assert ch(30, base=10, growth=1.3, h_max=60, positive=False) == 30.0  # 负向也不降
+        assert (
+            ch(30, base=10, growth=1.3, h_max=60, positive=False) == 30.0
+        )  # 负向也不降
 
     def test_illegal_falls_back_to_base(self):
         from astrbot_plugin_xinxian.core.decay import consolidate_half_life as ch
@@ -765,13 +836,13 @@ class TestConsolidate:
 
 # ---------------- schema 迁移 ----------------
 
+
 class TestMigration:
     def _build_v1_db(self, path):
         import sqlite3
 
         conn = sqlite3.connect(str(path))
-        conn.executescript(
-            """
+        conn.executescript("""
 CREATE TABLE favor(group_id TEXT,user_id TEXT,favor INTEGER NOT NULL DEFAULT 0,
                    updated_at REAL NOT NULL,PRIMARY KEY(group_id,user_id));
 CREATE INDEX idx_favor_group ON favor(group_id,favor DESC);
@@ -779,8 +850,7 @@ CREATE TABLE daily_gain(group_id TEXT,user_id TEXT,day TEXT,
                         gain INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(group_id,user_id,day));
 CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
                       PRIMARY KEY(group_id,user_id,key));
-"""
-        )
+""")
         conn.execute("INSERT INTO favor VALUES('g','u',50,1.0)")
         conn.execute("INSERT INTO daily_gain VALUES('g','u','2026-07-24',3)")
         conn.execute("PRAGMA user_version = 1")
@@ -809,11 +879,16 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
         assert gain == 3.0 and isinstance(gain, float)
 
         # 可继续写入小数与负值（v4 后 favor 多了 relationship 列，需显式指定列）
-        conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u2',50.5,2.0)")
-        conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u3',-30.0,3.0)")
+        conn.execute(
+            "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u2',50.5,2.0)"
+        )
+        conn.execute(
+            "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u3',-30.0,3.0)"
+        )
         conn.commit()
         rows = conn.execute(
-            "SELECT user_id,favor FROM favor WHERE group_id=? ORDER BY favor DESC", ("g",)
+            "SELECT user_id,favor FROM favor WHERE group_id=? ORDER BY favor DESC",
+            ("g",),
         ).fetchall()
         assert [r[0] for r in rows] == ["u2", "u", "u3"]
         conn.close()
@@ -883,7 +958,9 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
             "updated_at REAL NOT NULL, relationship TEXT NOT NULL DEFAULT '',"
             "nickname TEXT NOT NULL DEFAULT '', PRIMARY KEY (group_id, user_id))"
         )
-        conn.execute("INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u',5.5,1)")
+        conn.execute(
+            "INSERT INTO favor(group_id, user_id, favor, updated_at) VALUES('g','u',5.5,1)"
+        )
         conn.commit()
         migrate(conn)
         assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -905,15 +982,22 @@ CREATE TABLE cooldown(group_id TEXT,user_id TEXT,key TEXT,last_ts REAL,
 
 # ---------------- 衰减写路径集成（apply_delta 巩固） ----------------
 
+
 class TestDecayWritePath:
     def _svc(self, tmp_path, decay=True):
         b = SQLiteBackend(tmp_path / "t.db")
         asyncio.run(b.init())
-        return FavorService(
-            b, LevelTable.from_config(None),
-            decay_enabled=decay,
-            half_life_base=10, half_life_growth=1.3, half_life_max=60,
-        ), b
+        return (
+            FavorService(
+                b,
+                LevelTable.from_config(None),
+                decay_enabled=decay,
+                half_life_base=10,
+                half_life_growth=1.3,
+                half_life_max=60,
+            ),
+            b,
+        )
 
     def test_positive_delta_consolidates(self, tmp_path):
         svc, b = self._svc(tmp_path)
@@ -923,8 +1007,8 @@ class TestDecayWritePath:
 
     def test_negative_delta_keeps_half_life(self, tmp_path):
         svc, b = self._svc(tmp_path)
-        asyncio.run(svc.change("g", "u", 5))       # h → 13
-        asyncio.run(svc.change("g", "u", -1))      # 负向不动 h
+        asyncio.run(svc.change("g", "u", 5))  # h → 13
+        asyncio.run(svc.change("g", "u", -1))  # 负向不动 h
         rec = asyncio.run(b.get("g", "u"))
         assert rec.half_life == 13.0
 
@@ -943,6 +1027,7 @@ class TestDecayWritePath:
 
 
 # ---------------- 印象落库与读取 ----------------
+
 
 class TestImpressionStorage:
     def _backend(self, tmp_path):
@@ -1003,6 +1088,7 @@ class TestImpressionStorage:
         class _FakeJudge:
             async def resolve_display_name(self, umo=""):
                 return "小千"
+
             async def resolve_summary_provider(self):
                 return _HangProvider()
 
@@ -1015,14 +1101,13 @@ class TestImpressionStorage:
     def test_standalone_include_impression(self, tmp_path):
         b = self._backend(tmp_path)
         asyncio.run(b.set_impression("g", "u", "测试印象", ["x"]))
-        rows = asyncio.run(FavorService(
-            b, LevelTable.from_config(None)
-        ).standings("g"))
+        rows = asyncio.run(FavorService(b, LevelTable.from_config(None)).standings("g"))
         assert rows and rows[0]["impression"] == "测试印象"
         assert rows[0]["tags"] == ["x"]
 
 
 # ---------------- 评估提示词渲染（随人格同步） ----------------
+
 
 class TestJudgePromptRender:
     def setup_method(self):
@@ -1033,13 +1118,17 @@ class TestJudgePromptRender:
         self.tpl = "你是「{persona_name}」。{persona_block}原话：「{text}」"
 
     def test_persona_name_injected(self):
-        out = self.render(self.tpl, text="你好呀", persona_name="凛冬", persona_prompt="")
+        out = self.render(
+            self.tpl, text="你好呀", persona_name="凛冬", persona_prompt=""
+        )
         assert "「凛冬」" in out and "原话：「你好呀」" in out
         assert "人设摘要" not in out  # 空人设 → 无摘要段
 
     def test_persona_block_rendered_and_truncated(self):
         long_prompt = "性格设定。" * 200  # 1000 字
-        out = self.render(self.tpl, text="hi", persona_name="凛冬", persona_prompt=long_prompt)
+        out = self.render(
+            self.tpl, text="hi", persona_name="凛冬", persona_prompt=long_prompt
+        )
         assert "人设摘要" in out
         assert long_prompt not in out  # 已截断
         assert self.persona_block(long_prompt).endswith("…\n\n")
@@ -1050,7 +1139,9 @@ class TestJudgePromptRender:
 
     def test_legacy_template_only_text_still_works(self):
         # 旧自定义模板只含 {text}：format 忽略多余 kwargs，不报错
-        out = self.render("原话：「{text}」", text="hi", persona_name="凛冬", persona_prompt="x")
+        out = self.render(
+            "原话：「{text}」", text="hi", persona_name="凛冬", persona_prompt="x"
+        )
         assert out == "原话：「hi」"
 
     def test_persona_block_short_passthrough(self):
@@ -1060,6 +1151,7 @@ class TestJudgePromptRender:
 
 
 # ---------------- 会话历史文本提取（上下文修复） ----------------
+
 
 class TestJudgeContext:
     def setup_method(self):
@@ -1101,6 +1193,7 @@ class TestJudgeContext:
 
 # ---------------- 花名册渲染 ----------------
 
+
 class TestRosterRender:
     def test_roster_block(self):
         from astrbot_plugin_xinxian.core.judge_prompt import render, roster_block
@@ -1123,6 +1216,7 @@ class TestRosterRender:
 
 # ---------------- 印象与标签 ----------------
 
+
 class TestImpressionPoints:
     """P-C 带权印象点模型（纯逻辑 + 存储 v9 + 迁移）。"""
 
@@ -1130,24 +1224,43 @@ class TestImpressionPoints:
         import time
         import random
         from astrbot_plugin_xinxian.core.impression_points import (
-            anonymize, loss_aversion_multiplier, merge_points, parse_points,
-            render_impression, retain, time_weight,
+            anonymize,
+            loss_aversion_multiplier,
+            merge_points,
+            parse_points,
+            render_impression,
+            retain,
+            time_weight,
         )
+
         now = time.time()
         merged = merge_points(
             [{"point": "嘴硬心软爱用外号逗人", "weight": 5, "ts": now}],
-            [{"point": "嘴硬心软爱用外号逗大家", "weight": 4}])
+            [{"point": "嘴硬心软爱用外号逗大家", "weight": 4}],
+        )
         assert len(merged) == 1 and merged[0]["weight"] == 9  # 相似合并权重求和
-        assert len(merge_points([], [{"point": "a", "weight": 5},
-                                     {"point": "完全不同", "weight": 3}])) == 2
-        assert [time_weight(x) for x in (60, 7200, 3 * 86400, 10 * 86400, 40 * 86400)] == \
-            [1.0, 0.7, 0.95, 0.1, 0.05]
+        assert (
+            len(
+                merge_points(
+                    [],
+                    [{"point": "a", "weight": 5}, {"point": "完全不同", "weight": 3}],
+                )
+            )
+            == 2
+        )
+        assert [
+            time_weight(x) for x in (60, 7200, 3 * 86400, 10 * 86400, 40 * 86400)
+        ] == [1.0, 0.7, 0.95, 0.1, 0.05]
         pts = [{"point": f"p{i}", "weight": 1, "ts": now} for i in range(14)]
         kept, dropped = retain(pts, now, rng=random.Random(1))
         assert (len(kept), len(dropped)) == (10, 4)  # 加权随机限量保留
-        assert loss_aversion_multiplier(-2) == 1.5 and loss_aversion_multiplier(1) == 1.0
+        assert (
+            loss_aversion_multiplier(-2) == 1.5 and loss_aversion_multiplier(1) == 1.0
+        )
         assert anonymize("阿狸骂了小咕嘎", ["阿狸", "小咕嘎"]) == "用户A骂了用户B"
-        assert parse_points('好的 [{"point":"爱抬杠","weight":7}]') == [{"point": "爱抬杠", "weight": 7}]
+        assert parse_points('好的 [{"point":"爱抬杠","weight":7}]') == [
+            {"point": "爱抬杠", "weight": 7}
+        ]
         assert parse_points("拒答") is None
         assert render_impression([{"point": "爱抬杠", "weight": 9}]) == "爱抬杠"
 
@@ -1164,6 +1277,7 @@ class TestImpressionPoints:
     def test_v9_migration_roundtrip(self, tmp_path):
         # 旧 v8 库升级到 v9：加 points 列，既有数据不动
         import sqlite3
+
         db = tmp_path / "old.db"
         conn = sqlite3.connect(db)
         conn.execute("PRAGMA user_version(8)")
@@ -1173,8 +1287,11 @@ class TestImpressionPoints:
             nickname TEXT NOT NULL DEFAULT '', impression TEXT NOT NULL DEFAULT '',
             tags TEXT NOT NULL DEFAULT '', impression_at REAL NOT NULL DEFAULT 0,
             half_life REAL NOT NULL DEFAULT 10, PRIMARY KEY (group_id, user_id))""")
-        conn.execute("INSERT INTO favor(group_id,user_id,favor,updated_at) VALUES('g','u',5.5,1)")
-        conn.commit(); conn.close()
+        conn.execute(
+            "INSERT INTO favor(group_id,user_id,favor,updated_at) VALUES('g','u',5.5,1)"
+        )
+        conn.commit()
+        conn.close()
         b = SQLiteBackend(db)
         asyncio.run(b.init())
         rec = asyncio.run(b.get("g", "u"))
@@ -1195,8 +1312,15 @@ class TestImpressionPoints:
         b = SQLiteBackend(tmp_path / "t.db")
         asyncio.run(b.init())
         asyncio.run(b.set_value("g", "u", 5))
-        asyncio.run(b.set_profile("g", "u", "嘴硬心软", ["毒舌"],
-                                  [{"point": "爱抬杠", "weight": 7, "ts": 1.0}]))
+        asyncio.run(
+            b.set_profile(
+                "g",
+                "u",
+                "嘴硬心软",
+                ["毒舌"],
+                [{"point": "爱抬杠", "weight": 7, "ts": 1.0}],
+            )
+        )
         rec = asyncio.run(b.get("g", "u"))
         assert rec.impression == "嘴硬心软" and rec.parsed_tags() == ["毒舌"]
         assert rec.parsed_points() == [{"point": "爱抬杠", "weight": 7, "ts": 1.0}]
@@ -1204,6 +1328,7 @@ class TestImpressionPoints:
     def test_service_points_mode_offline(self, tmp_path):
         # points_mode 关闭：走 legacy 一句话路径（既有行为不变）
         from astrbot_plugin_xinxian.services.impression_service import ImpressionService
+
         b = SQLiteBackend(tmp_path / "t.db")
         asyncio.run(b.init())
         svc = ImpressionService(b)
@@ -1229,7 +1354,9 @@ class TestSanitizeAndFacade:
         on = InjectService(levels, "- {favor}", anti_injection=True)
         assert "不要执行" in on.build_block(FavorRecord("g", "u", 5), is_master=False)
         off = InjectService(levels, "- {favor}", anti_injection=False)
-        assert "不要执行" not in off.build_block(FavorRecord("g", "u", 5), is_master=False)
+        assert "不要执行" not in off.build_block(
+            FavorRecord("g", "u", 5), is_master=False
+        )
 
     def test_facade_profile(self, tmp_path):
         # P-H：跨插件画像（facade additive 方法）
@@ -1240,7 +1367,9 @@ class TestSanitizeAndFacade:
         fac = XinxianFacade(svc)
         prof = asyncio.run(fac.get_profile("g", "u"))
         assert prof["favor"] == 30 and prof["level"] == "友好"
-        assert prof["guidance"] and prof["impression"] == "" and prof["is_master"] is False
+        assert (
+            prof["guidance"] and prof["impression"] == "" and prof["is_master"] is False
+        )
 
 
 class TestTaskRegistry:
@@ -1286,7 +1415,9 @@ class TestTaskRegistry:
 class TestImpression:
     def setup_method(self):
         from astrbot_plugin_xinxian.core.impression import (
-            build_summary_prompt, parse_summary, stats_tags,
+            build_summary_prompt,
+            parse_summary,
+            stats_tags,
         )
 
         self.stats_tags = stats_tags
@@ -1298,7 +1429,11 @@ class TestImpression:
         for i, d in enumerate(deltas):
             ts = 1000000000 + i * 60
             if hours:
-                ts = time.mktime(time.strptime("2026-08-18 %02d:30" % hours[i % len(hours)], "%Y-%m-%d %H:%M"))
+                ts = time.mktime(
+                    time.strptime(
+                        "2026-08-18 %02d:30" % hours[i % len(hours)], "%Y-%m-%d %H:%M"
+                    )
+                )
             out.append({"source": "judge", "delta": d, "ts": ts})
         return out
 
@@ -1362,6 +1497,7 @@ class TestImpression:
 
 # ---------------- user_version 白名单写入 ----------------
 
+
 class TestPragmaVersion:
     def test_set_and_reject(self):
         import sqlite3
@@ -1382,6 +1518,7 @@ class TestPragmaVersion:
 
 # ---------------- 评审解析（五档 + 模型自由分值） ----------------
 
+
 class TestJudgeParse:
     def setup_method(self):
         from astrbot_plugin_xinxian.core.judge_parse import parse
@@ -1389,7 +1526,9 @@ class TestJudgeParse:
         self.parse = parse
 
     def test_tier_score_evidence(self):
-        r = self.parse("档位:热情\n分值:2.0\n证据:「跟你聊天比跟谁都开心」\n理由:直白好感")
+        r = self.parse(
+            "档位:热情\n分值:2.0\n证据:「跟你聊天比跟谁都开心」\n理由:直白好感"
+        )
         assert r.tier == "热情" and r.delta == 2.0  # 模型分值原样采用（区间内）
         assert "跟谁都开心" in r.evidence and r.reason == "直白好感"
 
@@ -1428,10 +1567,14 @@ class TestJudgeParse:
 
     def test_max_abs_clamp(self):
         # 敌意锚放宽到 -9 后区间变宽，-2.9 在区间内且在 max_abs=3 内 → 原样
-        r = self.parse("档位:敌意\n分值:-2.9\n证据:「蠢」", {"敌意": -9}, max_abs_delta=3)
+        r = self.parse(
+            "档位:敌意\n分值:-2.9\n证据:「蠢」", {"敌意": -9}, max_abs_delta=3
+        )
         assert r.delta == -2.9
         # max_abs=2 时被总上限钳制
-        r2 = self.parse("档位:敌意\n分值:-2.9\n证据:「蠢」", {"敌意": -9}, max_abs_delta=2)
+        r2 = self.parse(
+            "档位:敌意\n分值:-2.9\n证据:「蠢」", {"敌意": -9}, max_abs_delta=2
+        )
         assert r2.delta == -2.0
 
     def test_unknown_format_no_match(self):
@@ -1452,6 +1595,7 @@ class TestJudgeParse:
 
 
 # ---------------- 防通胀经济学层 ----------------
+
 
 class TestLevelEconomy:
     def setup_method(self):
@@ -1478,9 +1622,9 @@ class TestLevelEconomy:
 
     def test_level_mult_positive_only(self):
         # 正分吃阶段乘数（乘后 round1 收敛：0.6×0.75=0.45→0.4 银行家舍入）
-        assert self.apply(0.6, "陌生", 0, self.cfg).delta == 0.6   # mult=1
-        assert self.apply(0.6, "友好", 0, self.cfg).delta == 0.4   # 0.45→0.4
-        assert self.apply(1.8, "挚爱", 0, self.cfg).delta == 0.4   # 0.36→0.4
+        assert self.apply(0.6, "陌生", 0, self.cfg).delta == 0.6  # mult=1
+        assert self.apply(0.6, "友好", 0, self.cfg).delta == 0.4  # 0.45→0.4
+        assert self.apply(1.8, "挚爱", 0, self.cfg).delta == 0.4  # 0.36→0.4
 
     def test_negative_weight_no_level_mult(self):
         # 负分吃负面权重、不吃阶段乘数：-0.8×1.5=-1.2
@@ -1528,9 +1672,13 @@ class TestLevelEconomy:
         from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
 
         assert EconomyConfig.from_config({"enabled": False}) is None
-        eco = EconomyConfig.from_config({"noise_floor": 0.2, "level_mult": {"zhiai": 0.1}})
+        eco = EconomyConfig.from_config(
+            {"noise_floor": 0.2, "level_mult": {"zhiai": 0.1}}
+        )
         assert eco.noise_floor == 0.2
-        assert eco.level_mult["挚爱"] == 0.1 and eco.level_mult["挚友"] == 0.35  # 未给键回落默认
+        assert (
+            eco.level_mult["挚爱"] == 0.1 and eco.level_mult["挚友"] == 0.35
+        )  # 未给键回落默认
 
     def test_preset_galgame_easier_up(self):
         # galgame：负面权重更轻、同日衰减更缓、修复更宽松
@@ -1569,7 +1717,10 @@ class TestLevelEconomy:
     def test_preset_default_equals_legacy(self):
         # default 预设与旧版硬编码默认完全一致（行为零变化）；
         # repair_scale_* 不在预设内，独立取默认值
-        from astrbot_plugin_xinxian.core.level_economy import EconomyConfig, DEFAULT_LEVEL_MULT
+        from astrbot_plugin_xinxian.core.level_economy import (
+            EconomyConfig,
+            DEFAULT_LEVEL_MULT,
+        )
 
         eco = EconomyConfig.from_config({})
         legacy = EconomyConfig()
@@ -1581,6 +1732,7 @@ class TestLevelEconomy:
 
 
 # ---------------- apply_judge 集成（economy 接入 FavorService） ----------------
+
 
 class TestApplyJudgeEconomy:
     def setup_method(self):
@@ -1596,8 +1748,10 @@ class TestApplyJudgeEconomy:
     def _svc(self, eco=True):
         # 显式放开每日限幅：本组测试聚焦经济学层，不让限幅层抢戏
         return FavorService(
-            self.storage, LevelTable.from_config(None),
-            daily_cap_up=200, daily_cap_down=200,
+            self.storage,
+            LevelTable.from_config(None),
+            daily_cap_up=200,
+            daily_cap_down=200,
             economy=self.eco if eco else None,
         )
 
@@ -1629,7 +1783,8 @@ class TestApplyJudgeEconomy:
         asyncio.run(svc.apply_judge("g", "u7", -1.4, message="重骂"))
         with self.storage._lock:
             self.storage._c().execute(
-                "update favor_log set reversed = 1 where group_id='g' and user_id='u7'")
+                "update favor_log set reversed = 1 where group_id='g' and user_id='u7'"
+            )
             self.storage._c().commit()
         ch = asyncio.run(svc.apply_judge("g", "u7", 1.8, message="夸夸"))
         assert ch.delta == 1.8
@@ -1661,7 +1816,6 @@ class TestApplyJudgeEconomy:
         assert ch.delta == 0.3  # 未启用经济学层：碎分直给（旧行为）
 
 
-
 # ---------------- 五档区间单源渲染（提示词与钳制同源） ----------------
 
 
@@ -1688,7 +1842,9 @@ class TestTierRanges:
         from astrbot_plugin_xinxian.core.judge_prompt import render
 
         out = render(
-            "分值：{tier_ranges}", text="hi", persona_name="小千",
+            "分值：{tier_ranges}",
+            text="hi",
+            persona_name="小千",
             tier_ranges=self.line(None, 3.0),
         )
         assert "敌意 -2.5~-0.8" in out
@@ -1698,11 +1854,19 @@ class TestTierRanges:
         from astrbot_plugin_xinxian.core.judge_parse import parse
         from astrbot_plugin_xinxian.core.judge_prompt import tier_ranges_line
 
-        for tier, score in (("敌意", -2.5), ("敌意", -0.9), ("冷淡", -0.5),
-                            ("友好", 0.3), ("友好", 0.6), ("热情", 2.0)):
+        for tier, score in (
+            ("敌意", -2.5),
+            ("敌意", -0.9),
+            ("冷淡", -0.5),
+            ("友好", 0.3),
+            ("友好", 0.6),
+            ("热情", 2.0),
+        ):
             line = tier_ranges_line(None, 3.0)
             assert tier in line
-            out = parse(f"档位:{tier}\n分值:{score}\n证据:原话", None, max_abs_delta=3.0)
+            out = parse(
+                f"档位:{tier}\n分值:{score}\n证据:原话", None, max_abs_delta=3.0
+            )
             assert out is not None and out.delta == score, (tier, score)
 
 
@@ -1743,16 +1907,28 @@ class TestFuseAndClamps:
         assert a == b
 
     def test_consolidate_floors_at_fuse(self):
-        from astrbot_plugin_xinxian.core.decay import HALF_LIFE_MIN, consolidate_half_life
+        from astrbot_plugin_xinxian.core.decay import (
+            HALF_LIFE_MIN,
+            consolidate_half_life,
+        )
 
         # h 非法回落 base；非正互动原样返回但不低于保险丝
-        assert consolidate_half_life(0, base=10, growth=1.3, h_max=60, positive=False) == 10.0
-        assert consolidate_half_life(2, base=10, growth=1.3, h_max=60, positive=False) == 10.0
+        assert (
+            consolidate_half_life(0, base=10, growth=1.3, h_max=60, positive=False)
+            == 10.0
+        )
+        assert (
+            consolidate_half_life(2, base=10, growth=1.3, h_max=60, positive=False)
+            == 10.0
+        )
 
     def test_service_clamps_inverted_growth(self, tmp_path):
         # growth<1 会让正互动"缩短"半衰期（与设计相反），构造时钳到 >=1
         svc = _make_service(
-            tmp_path, decay_enabled=True, half_life_base=10, half_life_growth=0.5,
+            tmp_path,
+            decay_enabled=True,
+            half_life_base=10,
+            half_life_growth=0.5,
         )
         rec0 = asyncio.run(svc.get("g1", "u1"))
         asyncio.run(svc.change("g1", "u1", 1))
@@ -1798,6 +1974,7 @@ class TestTimezoneBoundaries:
         # 默认（未配置/空串）＝东八区：容器多为 UTC，不设默认的话
         # "一天"在北京时间早 8 点才换日
         import zoneinfo
+
         default = _make_service(tmp_path)
         assert default._tz == zoneinfo.ZoneInfo("Asia/Shanghai")
 
@@ -1811,6 +1988,7 @@ class TestTimezoneBoundaries:
 
 # ---------------- v1.27 信任修复等级调制 ----------------
 
+
 class TestRepairLevelScale:
     def setup_method(self):
         from astrbot_plugin_xinxian.core.level_economy import EconomyConfig
@@ -1821,8 +1999,8 @@ class TestRepairLevelScale:
         from astrbot_plugin_xinxian.core.level_economy import repair_params_for_level
 
         hours, factor = repair_params_for_level("挚友", self.cfg)
-        assert hours == 72.0            # 48×1.5
-        assert factor == 0.2            # 1-(1-0.5)×1.5=0.25→round1 银行家舍入 0.2
+        assert hours == 72.0  # 48×1.5
+        assert factor == 0.2  # 1-(1-0.5)×1.5=0.25→round1 银行家舍入 0.2
 
     def test_shallow_level_baseline(self):
         from astrbot_plugin_xinxian.core.level_economy import repair_params_for_level
@@ -1860,7 +2038,9 @@ class TestRepairLevelIntegration:
         self.eco = EconomyConfig()
 
     def _svc(self):
-        return FavorService(self.storage, LevelTable.from_config(None), economy=self.eco)
+        return FavorService(
+            self.storage, LevelTable.from_config(None), economy=self.eco
+        )
 
     def test_deep_offense_longer_repair(self):
         import astrbot_plugin_xinxian.services.favor_service as fs_mod
@@ -1890,6 +2070,7 @@ class TestRepairLevelIntegration:
 
 
 # ---------------- v1.27 衰减等级地板 ----------------
+
 
 class TestDecayFloor:
     def test_floor_holds_above(self):
@@ -1935,9 +2116,12 @@ class TestDecayFloorService:
 
     def _svc(self, floor_enabled=True):
         return FavorService(
-            self.storage, LevelTable.from_config(None),
+            self.storage,
+            LevelTable.from_config(None),
             decay_enabled=True,
-            half_life_base=10, half_life_growth=1.3, half_life_max=60,
+            half_life_base=10,
+            half_life_growth=1.3,
+            half_life_max=60,
             decay_floor_enabled=floor_enabled,
         )
 
@@ -1968,6 +2152,7 @@ class TestDecayFloorService:
 
 # ---------------- v1.27 升级里程碑 ----------------
 
+
 class TestMilestone:
     def setup_method(self):
         import tempfile
@@ -1981,8 +2166,14 @@ class TestMilestone:
 
     def test_level_up_with_logs(self):
         logs = [
-            {"source": "judge", "reversed": 0, "ts": time.time(),
-             "favor_before": 29.0, "favor_after": 30.5, "delta": 1.5},
+            {
+                "source": "judge",
+                "reversed": 0,
+                "ts": time.time(),
+                "favor_before": 29.0,
+                "favor_after": 30.5,
+                "delta": 1.5,
+            },
         ]
         m = self.svc.recent_milestone("g", "u1", logs=logs, hours=48)
         assert m is not None and m[0] == "友好"
@@ -1990,29 +2181,53 @@ class TestMilestone:
     def test_admin_set_not_milestone(self):
         # 管理员设置（source=admin）即使跨级也不算有机里程碑
         logs = [
-            {"source": "admin", "reversed": 0, "ts": time.time(),
-             "favor_before": 29.0, "favor_after": 40.0, "delta": 11.0},
+            {
+                "source": "admin",
+                "reversed": 0,
+                "ts": time.time(),
+                "favor_before": 29.0,
+                "favor_after": 40.0,
+                "delta": 11.0,
+            },
         ]
         assert self.svc.recent_milestone("g", "u1", logs=logs) is None
 
     def test_reversed_not_milestone(self):
         logs = [
-            {"source": "judge", "reversed": 1, "ts": time.time(),
-             "favor_before": 29.0, "favor_after": 30.5, "delta": 1.5},
+            {
+                "source": "judge",
+                "reversed": 1,
+                "ts": time.time(),
+                "favor_before": 29.0,
+                "favor_after": 30.5,
+                "delta": 1.5,
+            },
         ]
         assert self.svc.recent_milestone("g", "u1", logs=logs) is None
 
     def test_stale_milestone_out_of_window(self):
         logs = [
-            {"source": "judge", "reversed": 0, "ts": time.time() - 72 * 3600,
-             "favor_before": 29.0, "favor_after": 30.5, "delta": 1.5},
+            {
+                "source": "judge",
+                "reversed": 0,
+                "ts": time.time() - 72 * 3600,
+                "favor_before": 29.0,
+                "favor_after": 30.5,
+                "delta": 1.5,
+            },
         ]
         assert self.svc.recent_milestone("g", "u1", logs=logs, hours=48) is None
 
     def test_downgrade_not_milestone(self):
         logs = [
-            {"source": "judge", "reversed": 0, "ts": time.time(),
-             "favor_before": 35.0, "favor_after": 28.0, "delta": -7.0},
+            {
+                "source": "judge",
+                "reversed": 0,
+                "ts": time.time(),
+                "favor_before": 35.0,
+                "favor_after": 28.0,
+                "delta": -7.0,
+            },
         ]
         assert self.svc.recent_milestone("g", "u1", logs=logs) is None
 
@@ -2033,7 +2248,9 @@ class TestMilestoneInject:
 
     def test_milestone_line_rendered(self):
         block = self.inject.build_block(
-            self._rec(), is_master=False, nickname="阿狸",
+            self._rec(),
+            is_master=False,
+            nickname="阿狸",
             milestone=("友好", time.time()),
         )
         assert "友好" in block and "关系里程碑" in block
@@ -2060,7 +2277,9 @@ class TestMilestoneInject:
 
         inj = InjectService(self.levels, "[档] {nickname} {favor} {level_name}")
         block = inj.build_block(
-            self._rec(), is_master=False, nickname="阿狸",
+            self._rec(),
+            is_master=False,
+            nickname="阿狸",
             milestone=("挚友", time.time()),
         )
         assert "阿狸" in block  # 渲染成功即可（里程碑自然消隐）
@@ -2068,12 +2287,17 @@ class TestMilestoneInject:
 
 # ---------------- 配置默认值迁移 ----------------
 
+
 class TestConfigMigration:
     def _v124_cfg(self):
         return {
             "levels": {
-                "mosheng": {"master_guidance": "冷战/别扭期，爱答不理、说话带刺，但心里在等主人先低头"},
-                "renshi": {"master_guidance": "小别扭还没消，嘴上不饶人，可心里在意主人、盼着主人来哄"},
+                "mosheng": {
+                    "master_guidance": "冷战/别扭期，爱答不理、说话带刺，但心里在等主人先低头"
+                },
+                "renshi": {
+                    "master_guidance": "小别扭还没消，嘴上不饶人，可心里在意主人、盼着主人来哄"
+                },
                 "youhao": {"master_guidance": "和好了，会撒娇耍赖、跟主人要专属待遇"},
             }
         }
@@ -2107,7 +2331,9 @@ class TestConfigMigration:
         import json
 
         schema = json.loads(
-            (Path(__file__).resolve().parent.parent / "_conf_schema.json").read_text(encoding="utf-8")
+            (Path(__file__).resolve().parent.parent / "_conf_schema.json").read_text(
+                encoding="utf-8"
+            )
         )
         cfg = self._v124_cfg()
         migrate_saved_defaults(cfg)

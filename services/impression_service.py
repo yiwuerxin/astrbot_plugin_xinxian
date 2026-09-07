@@ -30,7 +30,9 @@ class ImpressionService:
     ) -> None:
         self._storage = storage
         self._interval = max(1, int(interval))
-        self._summarizer = summarizer  # main.py 注入（JudgeService，借其 provider 解析）
+        self._summarizer = (
+            summarizer  # main.py 注入（JudgeService，借其 provider 解析）
+        )
         self._points_mode = points_mode  # P-C：带权印象点模式（默认关=legacy 一句话）
         # X3：汇总调用超时（与评审同源配置）——挂起的 provider 会把后台
         # 任务永久滞留在注册表里
@@ -59,7 +61,9 @@ class ImpressionService:
         if self._summarizer is None or self._interval <= 0:
             return
         try:
-            logs = await self._storage.query_logs(group_id, user_id, limit=self._interval)
+            logs = await self._storage.query_logs(
+                group_id, user_id, limit=self._interval
+            )
             hit = sum(1 for r in logs if r.get("source") == "judge")
             if hit and hit % self._interval == 0:
                 coro = self._refresh_inner(group_id, user_id, umo)
@@ -70,13 +74,17 @@ class ImpressionService:
         except Exception:
             pass  # 印象是增值功能，任何失败都不影响主链路
 
-    async def refresh_now(self, group_id: str, user_id: str, umo: str = "") -> tuple[bool, str]:
+    async def refresh_now(
+        self, group_id: str, user_id: str, umo: str = ""
+    ) -> tuple[bool, str]:
         """立即刷新印象（指令/WebUI 手动触发），返回 (是否成功, 一句话结果)。"""
         if self._summarizer is None:
             return False, "印象功能未启用"
         return await self._refresh_inner(group_id, user_id, umo)
 
-    async def _refresh_inner(self, group_id: str, user_id: str, umo: str = "") -> tuple[bool, str]:
+    async def _refresh_inner(
+        self, group_id: str, user_id: str, umo: str = ""
+    ) -> tuple[bool, str]:
         """收集流水 → 构造汇总提示 → 调 provider → 解析落库。"""
         from astrbot.api import logger  # 延迟导入，保持本模块可脱离框架测试
 
@@ -100,9 +108,19 @@ class ImpressionService:
                 return False, "模型不可用，稍后再试"
             if self._points_mode:
                 return await self._refresh_points(
-                    group_id, user_id, nickname, old_impression, samples,
-                    persona_name, judged, provider, logger)
-            prompt = build_summary_prompt(nickname, old_impression, samples, persona_name)
+                    group_id,
+                    user_id,
+                    nickname,
+                    old_impression,
+                    samples,
+                    persona_name,
+                    judged,
+                    provider,
+                    logger,
+                )
+            prompt = build_summary_prompt(
+                nickname, old_impression, samples, persona_name
+            )
             resp = await self._call_llm(provider, prompt)
             content = (getattr(resp, "completion_text", "") or "").strip()
             parsed = parse_summary(content)
@@ -114,21 +132,39 @@ class ImpressionService:
             tags = (llm_tags + extra)[:3]
             await self._storage.set_impression(group_id, user_id, impression, tags)
             logger.info(f"[心弦] {group_id}/{user_id} 印象已刷新: {impression}")
-            msg = f"已生成印象：{impression}" + (f"（标签：{'、'.join(tags)}）" if tags else "")
+            msg = f"已生成印象：{impression}" + (
+                f"（标签：{'、'.join(tags)}）" if tags else ""
+            )
             return True, msg
 
         except Exception as e:
             logger.warning(f"[心弦] 印象刷新失败（静默）: {e}")
             return False, f"刷新失败: {e}"
 
-    async def _refresh_points(self, group_id, user_id, nickname, old_impression,
-                              samples, persona_name, judged, provider, logger) -> tuple[bool, str]:
+    async def _refresh_points(
+        self,
+        group_id,
+        user_id,
+        nickname,
+        old_impression,
+        samples,
+        persona_name,
+        judged,
+        provider,
+        logger,
+    ) -> tuple[bool, str]:
         """P-C 带权点模式：LLM 提点 → 损失厌恶加权 → 相似合并 → 限量保留。"""
         import time as _time
         from ..core.impression_points import (
-            POINTS_PROMPT, anonymize, loss_aversion_multiplier,
-            merge_points, parse_points, render_impression, retain,
+            POINTS_PROMPT,
+            anonymize,
+            loss_aversion_multiplier,
+            merge_points,
+            parse_points,
+            render_impression,
+            retain,
         )
+
         try:
             now = _time.time()
             rec = await self._storage.get(group_id, user_id)
@@ -137,17 +173,31 @@ class ImpressionService:
             others = []
             try:
                 rows = await self._storage.list_favor(group_id, limit=200)
-                others = [r.nickname for r in rows if r.nickname and r.user_id != user_id]
+                others = [
+                    r.nickname for r in rows if r.nickname and r.user_id != user_id
+                ]
             except Exception:
                 pass
             anon_samples = "\n".join(anonymize(x, others) for x in samples)
-            old_line = (f"既有印象点（权重 1~10）：\n" + "\n".join(
-                f"- {p.get('point')}（{p.get('weight')}）" for p in existing[:10]) + "\n"
-            ) if existing else ""
+            old_line = (
+                (
+                    f"既有印象点（权重 1~10）：\n"
+                    + "\n".join(
+                        f"- {p.get('point')}（{p.get('weight')}）"
+                        for p in existing[:10]
+                    )
+                    + "\n"
+                )
+                if existing
+                else ""
+            )
             recent_delta = float(judged[0].get("delta") or 0) if judged else 0.0
             prompt = POINTS_PROMPT.format(
-                persona_name=persona_name, who=nickname or user_id,
-                old_points=old_line, samples=anon_samples or "（暂无记录）")
+                persona_name=persona_name,
+                who=nickname or user_id,
+                old_points=old_line,
+                samples=anon_samples or "（暂无记录）",
+            )
             resp = await self._call_llm(provider, prompt)
             content = (getattr(resp, "completion_text", "") or "").strip()
             new_pts = parse_points(content)
@@ -167,9 +217,13 @@ class ImpressionService:
                 impression = (prefix + impression + tail)[:200]
             # 原子档案更新：点集/印象/标签一次写入（失败即整体不生效，可安全重试）
             old_tags = rec.parsed_tags() if rec else []
-            await self._storage.set_profile(group_id, user_id, impression, old_tags, kept)
-            logger.info(f"[心弦] {group_id}/{user_id} 印象点已刷新: "
-                        f"{len(kept)} 点（挤出 {len(dropped)}）")
+            await self._storage.set_profile(
+                group_id, user_id, impression, old_tags, kept
+            )
+            logger.info(
+                f"[心弦] {group_id}/{user_id} 印象点已刷新: "
+                f"{len(kept)} 点（挤出 {len(dropped)}）"
+            )
             return True, f"已生成印象：{impression}"
         except Exception as e:
             logger.warning(f"[心弦] 印象点刷新失败（静默）: {e}")
@@ -179,6 +233,8 @@ class ImpressionService:
         """手动设置标签（指令入口）；印象本体由 AI 维护，这里只改标签。"""
         rec = await self._storage.get(group_id, user_id)
         await self._storage.set_impression(
-            group_id, user_id, (rec.impression if rec else ""),
+            group_id,
+            user_id,
+            (rec.impression if rec else ""),
             [t.strip()[:6] for t in tags if t.strip()][:3],
         )

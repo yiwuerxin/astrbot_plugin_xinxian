@@ -30,7 +30,9 @@ class TaskRegistry:
 
     def spawn(self, coro, name: str = "") -> asyncio.Task:
         """create_task 的唯一入口：强引用 + 具名 + 完成自动移除。"""
-        task = asyncio.create_task(coro, name=name) if name else asyncio.create_task(coro)
+        task = (
+            asyncio.create_task(coro, name=name) if name else asyncio.create_task(coro)
+        )
         self._adopt(task, name)
         return task
 
@@ -60,4 +62,6 @@ class TaskRegistry:
             t.cancel()
         _done, pending = await asyncio.wait(tasks, timeout=timeout)
         if pending:
-            logger.warning(f"心弦: {len(pending)} 个后台任务 {timeout}s 内未结束，放弃等待")
+            logger.warning(
+                f"心弦: {len(pending)} 个后台任务 {timeout}s 内未结束，放弃等待"
+            )

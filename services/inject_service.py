@@ -15,7 +15,6 @@ from ..core.models import FavorRecord
 from ..core.relationship import RelationshipTable
 from ..core.sanitize import ANTI_INJECTION_LINES
 
-
 # 主人身份的默认注入提示：身份恒定 + 好感照常涨跌（不豁免）；具体语气
 # 由主人版态度指引（levels.*.master_guidance）承接，身份行只声明语义切换。
 # 用 {master_title} 占位称谓；inject.master_prompt 配置可覆盖整段。
@@ -25,11 +24,23 @@ DEFAULT_MASTER_PROMPT = (
 )
 
 # 模板合法占位符全集（build_block 的 format 关键字参数）
-_TEMPLATE_FIELDS = frozenset({
-    "nickname", "user_id", "master_line", "favor", "max_favor", "level_name",
-    "level_guidance", "disclosure", "interaction", "recent_events",
-    "relationship", "impression", "milestone",
-})
+_TEMPLATE_FIELDS = frozenset(
+    {
+        "nickname",
+        "user_id",
+        "master_line",
+        "favor",
+        "max_favor",
+        "level_name",
+        "level_guidance",
+        "disclosure",
+        "interaction",
+        "recent_events",
+        "relationship",
+        "impression",
+        "milestone",
+    }
+)
 
 
 class InjectService:
@@ -71,7 +82,8 @@ class InjectService:
         except ValueError as e:
             return f"模板语法错误：{e}"
         unknown = [
-            (f if f else "<位置参数>") for f in fields
+            (f if f else "<位置参数>")
+            for f in fields
             if f is not None and (f == "" or f not in _TEMPLATE_FIELDS)
         ]
         return f"未知占位符 {unknown}" if unknown else None

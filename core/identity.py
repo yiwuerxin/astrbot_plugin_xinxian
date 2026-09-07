@@ -11,9 +11,7 @@ from typing import Collection
 def parse_master_ids(raw: str) -> list[str]:
     """解析配置里的主人 QQ 号（英文/中文逗号分隔）。"""
     return [
-        x.strip()
-        for x in str(raw or "").replace("，", ",").split(",")
-        if x.strip()
+        x.strip() for x in str(raw or "").replace("，", ",").split(",") if x.strip()
     ]
 
 
