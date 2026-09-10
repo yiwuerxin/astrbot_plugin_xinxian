@@ -2517,3 +2517,49 @@ def test_listener_priority_before_maisoul():
         encoding="utf-8"
     )
     assert "GROUP_MESSAGE, priority=1" in main_txt
+
+
+def test_maisoul_api_duck_fallback():
+    """名字直查失败时的鸭子类型兜底（实际部署环境实报）。
+
+    插件以本地化（非默认英文）目录名部署时 get_registered_star
+    ("astrbot_plugin_maisoul") 返回 None——调制/跃迁推送/模型联动三路
+    同时静默失效。兜底遍历 get_all_stars 认挂了完整情绪 facade 的 star。"""
+    import asyncio
+
+    from astrbot_plugin_xinxian.api import emotion_bridge as eb
+
+    class _Api:
+        async def get_feedback(self, gid):
+            return {"pfb": 2, "valence": 0.5}
+
+        async def apply_emotion_event(self, gid, word, intensity=0.5):
+            return True
+
+    class _Star:
+        def __init__(self, api):
+            self.star_cls = type("S", (), {"api": api})()
+
+    class _Ctx:
+        def __init__(self, by_name, all_stars):
+            self._by_name, self._all = by_name, all_stars
+
+        def get_registered_star(self, name):
+            return self._by_name
+
+        def get_all_stars(self):
+            return self._all
+
+    real = _Api()
+    # 1) 名字命中：直查路径
+    assert eb._maisoul_api(_Ctx(_Star(real), [])) is real
+    # 2) 名字查不到 + 遍历兜底命中
+    assert eb._maisoul_api(_Ctx(None, [_Star(object()), _Star(real)])) is real
+    # 3) 两路都无：None
+    assert eb._maisoul_api(_Ctx(None, [_Star(object())])) is None
+
+    # 4) 调制端到端：兜底路径下 pfb=2 同向 ×1.1
+    async def _run():
+        return await eb.modulate_delta(_Ctx(None, [_Star(real)]), "g1", 1.0)
+
+    assert asyncio.run(_run()) == 1.1

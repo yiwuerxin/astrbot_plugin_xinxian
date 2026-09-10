@@ -30,10 +30,25 @@ _LEVEL_WORDS_DOWN = {1: ("委屈", 0.5), 2: ("悲伤", 0.7)}
 
 
 def _maisoul_api(context):
-    """麦麦插件 facade（无则 None）。"""
+    """麦麦插件 facade（无则 None）。
+
+    名称直查失败时鸭子类型兜底：生产部署的插件目录/注册名可能是本地化
+    名（本机实报 2026-09-11：目录「麦麦之魂」下 get_registered_star
+    ("astrbot_plugin_maisoul") 返回 None，调制/跃迁推送/模型联动三路
+    同时静默失效）——遍历已加载 star，认挂了完整情绪 facade 的那个。"""
     try:
         star = context.get_registered_star("astrbot_plugin_maisoul")
         api = getattr(getattr(star, "star_cls", None), "api", None)
+        if not hasattr(api, "get_feedback"):
+            api = None
+        if api is None:
+            for st in context.get_all_stars() or []:
+                cand = getattr(getattr(st, "star_cls", None), "api", None)
+                if callable(getattr(cand, "get_feedback", None)) and callable(
+                    getattr(cand, "apply_emotion_event", None)
+                ):
+                    api = cand
+                    break
         return api if hasattr(api, "get_feedback") else None
     except Exception:
         return None
