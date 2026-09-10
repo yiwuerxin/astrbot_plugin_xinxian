@@ -2705,3 +2705,36 @@ class TestApplyFavorChangeAtomic:
         # 此处 favor 已 +3 而流水/额度记账缺失——漂移行）
         assert asyncio.run(self.backend.get("g", "u")).favor == base_favor
         assert asyncio.run(self.backend.daily_gain("g", "u", day)) == base_gain
+
+
+class TestBackendCompatDefault:
+    """Sourcery #66:apply_favor_change 不得是新增抽象方法——只实现既有
+    ABC 面的第三方 StorageBackend 子类必须继续可用且限幅语义不丢。"""
+
+    def test_default_impl_enforces_caps(self, tmp_path):
+        from astrbot_plugin_xinxian.storage.base import StorageBackend
+
+        class _CompatOnly(SQLiteBackend):
+            """模拟外部后端:显式回落 base 的兼容默认实现(不经 SQLite 单事务)。"""
+
+            async def apply_favor_change(self, *a, **k):
+                return await StorageBackend.apply_favor_change(self, *a, **k)
+
+        b = _CompatOnly(tmp_path / "compat.db")
+        asyncio.run(b.init())
+        svc = FavorService(
+            b,
+            LevelTable.from_config(None),
+            daily_cap_up=5,
+            daily_cap_down=5,
+        )
+        c1 = asyncio.run(svc.change("g", "u", 3.0))
+        c2 = asyncio.run(svc.change("g", "u", 5.0))  # 额度剩 2 → 截断
+        c3 = asyncio.run(svc.change("g", "u", 1.0))  # 额度耗尽 → 零变动
+        day = svc._today().isoformat()
+        assert c1.delta == 3.0 and not c1.clamped
+        assert c2.delta == 2.0 and c2.clamped
+        assert c3.delta == 0 and c3.clamped
+        assert asyncio.run(b.daily_gain("g", "u", day)) == 5.0
+        logs = asyncio.run(b.query_logs("g", "u", limit=10))
+        assert len(logs) == 2  # 额度耗尽那笔不写流水

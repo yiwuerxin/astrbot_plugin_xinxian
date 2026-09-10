@@ -17,7 +17,7 @@ from pathlib import Path
 from ..core.decay import consolidate_half_life, effective_favor
 from ..core.decimal import round1
 from ..core.models import FavorRecord
-from .base import StorageBackend
+from .base import StorageBackend, clamp_daily
 from .migrations import migrate
 
 
@@ -183,24 +183,61 @@ class SQLiteBackend(StorageBackend):
         source: str = "api",
         message: str = "",
         cooldown_key: str | None = None,
-    ) -> tuple[FavorRecord, float]:
-        """主写路径单事务：数值变动 + 当日额度 + 流水 (+ 冷却)，一个 commit。
+        daily_cap_up: float | None = None,
+        daily_cap_down: float | None = None,
+    ) -> tuple[FavorRecord, float, float, bool]:
+        """主写路径单事务：每日限幅 + 数值变动 + 当日额度 + 流水 (+ 冷却)。
 
         历史缺陷（2026-09-11 审查 X-P1c）：favor_service 曾按
         apply_delta → add_daily_gain → add_log → touch_event 四次独立
         commit 串接，进程在中间崩溃会留下"好感已变、流水/额度缺失"的
         漂移行——undo、里程碑、限幅记账全部失真。与 apply_undo 同一
-        模式：锁内 BEGIN → 全部语句 → commit，任一步失败整体回滚。"""
+        模式：锁内 BEGIN → 全部语句 → commit，任一步失败整体回滚。
+        限幅读（daily_gain）也在同一事务内（Sourcery #66：并发写不会
+        双双读到同一剩余额度后超额落库）。返回
+        (记录, 实际变化量, 限幅后拟写入量, 是否触顶截断)。"""
         now = time.time()
         with self._lock:
             conn = self._c()
             try:
                 conn.execute("BEGIN")
+                allowed, capped = delta, False
+                if daily_cap_up is not None and daily_cap_down is not None and day:
+                    grow = conn.execute(
+                        "SELECT gain FROM daily_gain "
+                        "WHERE group_id=? AND user_id=? AND day=?",
+                        (group_id, user_id, day),
+                    ).fetchone()
+                    allowed, capped = clamp_daily(
+                        delta,
+                        round1(grow[0]) if grow else 0.0,
+                        daily_cap_up,
+                        daily_cap_down,
+                    )
+                    if allowed == 0:
+                        # 当日额度耗尽：不动任何表（与历史行为一致——
+                        # 旧实现在 service 层提前 return，不写不摸）
+                        conn.rollback()
+                        frow = conn.execute(
+                            "SELECT favor FROM favor WHERE group_id=? AND user_id=?",
+                            (group_id, user_id),
+                        ).fetchone()
+                        cur = (
+                            round1(float(frow[0]))
+                            if frow
+                            else round1(float(default_favor or 0.0))
+                        )
+                        return (
+                            FavorRecord(group_id, user_id, cur, now),
+                            0.0,
+                            0.0,
+                            True,
+                        )
                 new_value, real_delta, new_h = self._compute_favor_write(
                     conn,
                     group_id,
                     user_id,
-                    delta,
+                    allowed,
                     max_favor,
                     min_favor,
                     decay,
@@ -248,6 +285,8 @@ class SQLiteBackend(StorageBackend):
         return (
             FavorRecord(group_id, user_id, new_value, now, half_life=new_h),
             real_delta,
+            allowed,
+            capped,
         )
 
     def _upsert(
