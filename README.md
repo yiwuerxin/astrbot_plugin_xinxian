@@ -16,6 +16,7 @@
 - **主人身份**：按 QQ 号认定（昵称不可信），主人有专属身份标识与专属态度指引——数值照常涨跌，负好感＝闹别扭（不是对外人的厌恶）、正值＝亲疏程度递进，每级主人语义可配（levels.*.master_guidance）
 - **提示词注入**：每次对话自动把对方的好感度档案注入 system_prompt，小千自然地对亲密的人更软、对厌恶的人有距离
 - **防刷机制**：单事件冷却 + 每日双向限幅（净增/净降各限）+ 数值上下限封顶
+- **麦麦情绪联动**（v1.31.0，可选）：与 astrbot_plugin_maisoul 双向数值耦合——评审模型跟随麦麦 replyer 实际使用的模型（打分的就是说话的）；连续同向情绪放大/缩小评审增益（同向最高 ×2、异向 ÷2）；好感等级跃迁反向注入情绪事件（升级→安心/开心，降级→委屈/悲伤），态度变化立即体现在语气里。只交换数值不注入提示词，麦麦不在场或开关关闭时自动空转
 - **可扩展**：core 纯领域逻辑可单测，存储后端可替换，跨插件 API 稳定承诺
 
 ## 目录结构
@@ -76,6 +77,8 @@ astrbot_plugin_xinxian/
 | timezone | "" | 每日限幅/同日衰减的"一天"边界时区（如 Asia/Shanghai）；留空用系统本地时区（Docker 默认 UTC＝北京时间早 8 点换日） |
 | daily_cap_up / daily_cap_down | 4 / 8 | 每日净增/净降上限（支持一位小数）；默认降上限更宽（负性偏向） |
 | judge.enabled / provider_id | true / "" | LLM 评估开关与模型（建议选便宜小模型，留空跟随会话） |
+| judge.follow_maisoul_replyer | true | 检测到麦麦插件时，评估模型跟随其 replyer 实际使用的模型（人格口径一致且必然可用）；未装/解析失败静默回落：narrative_reason 强制会话模型 > provider_id > 会话主模型 |
+| coupling.enabled | true | 麦麦情绪联动总开关：评审增益按连续情绪调制 + 等级跃迁注入情绪事件；麦麦侧 emotion_enable/emotion_feedback_enable 任一关闭时自动空转 |
 | judge.only_when_at_or_reply | true | 仅@/回复时评估，省成本 |
 | judge.follow_persona / bot_name | true / 小千 | 评估提示词跟随 AstrBot 当前人格（切人格后按新人格的名字与人设评审）；关闭则固定用 bot_name |
 | judge.attitude_deltas | 见 schema | 五档区间锚点：模型自由给分，档位锚定区间内钳制（敌意 -2.5 / 冷淡 -0.8 / 中性 0 / 友好 0.6 / 热情 1.8） |
