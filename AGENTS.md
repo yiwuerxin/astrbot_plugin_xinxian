@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents working in this repository (AGENTS.md 跨工具通用约定)。
 
 ## What this is
 
@@ -82,7 +82,7 @@ Strict one-way layering: `main.py` → `api/` → `services/` → `core/` + `sto
 3. Push the branch and open a PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …"), then **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait.
 4. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`), keeping the `@register(...)` string in `main.py` in sync (both read `1.30.0`).
 
-Host-specific details — working-copy/production directory layout, deploy procedure, credentials location, network quirks, and the current pending-deploy state — live in **`CLAUDE.local.md`**, which is gitignored. **Never commit that file or anything from it.**
+Host-specific details — working-copy/production directory layout, deploy procedure, credentials location, network quirks, and the current pending-deploy state — live in **`AGENTS.local.md`**, which is gitignored. **Never commit that file or anything from it.**
 
 An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave it out of commits.
 
@@ -93,7 +93,7 @@ This plugin runs in production for many users. Every PR is reviewed against this
 ### 1. Privacy & data (the hard rules)
 
 - **No real user data in any commit or PR text**: QQ numbers, nicknames/外号, group IDs, chat excerpts, real favor values, real judge reasons/impressions. Examples in README / `_conf_schema.json` / code comments / tests must use obvious placeholders (`123456789`, `阿狸`, round numbers like `50.0`). PR titles/bodies read like a product changelog: behavior changes only, no production numbers or scenes.
-- **Credentials & infra never in the repo**: tokens, host paths, server/container layout, deploy runbooks, production state. These belong in `CLAUDE.local.md` only (gitignored).
+- **Credentials & infra never in the repo**: tokens, host paths, server/container layout, deploy runbooks, production state. These belong in `AGENTS.local.md` only (gitignored).
 - **Data-flow inventory (what a new feature must answer)**: what user data does it touch (message text? QQ? nickname?), where does it go (local SQLite only ⇄ sent to an LLM provider ⇄ rendered into prompts/images), and is it minimal? New columns/fields storing message content must be justified — `favor_log.message` (v6) stores at most a 200-char excerpt, judge path only; keep that bound for anything similar.
 - **LLM egress is the only external flow**: message text goes to the configured judge provider (and nothing else). Any new feature that sends data to a third party beyond the configured provider is rejected outright. No telemetry, no phone-home, no fetch to any hardcoded URL.
 - **Local-only storage**: everything persists in `data/plugin_data/astrbot_plugin_xinxian/xinxian.db`; the dashboard inherits AstrBot's own auth — never add a standalone server/port/credentials.
@@ -114,7 +114,7 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 
 - `metadata.yaml` and `@register()` version strings bumped together, same PR as the code. Version follows Conventional Commits: `fix:` → patch, `feat:` → minor, `feat!`/`BREAKING CHANGE` → major.
 - PR self-check after opening: grep the PR body for real identifiers (QQ/nicknames/groups/values) and PATCH if any leak.
-- Deploy only after owner merge: tar-sync code files (excluding `.git`/caches/`tokens.txt`/`CLAUDE.local.md`), reload plugin via dashboard API, verify the loaded version in logs, never touch `xinxian.db*`.
+- Deploy only after owner merge: tar-sync code files (excluding `.git`/caches/`tokens.txt`/`AGENTS.local.md`), reload plugin via dashboard API, verify the loaded version in logs, never touch `xinxian.db*`.
 
 ### 5. Commit & PR writing standard (industry norms, applies to external PRs too)
 
@@ -173,4 +173,4 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 
 Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
 
-Current pending state (deploy plans, production config) lives in `CLAUDE.local.md` — not in this file, which is public.
+Current pending state (deploy plans, production config) lives in `AGENTS.local.md` — not in this file, which is public.
