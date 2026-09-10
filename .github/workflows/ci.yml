@@ -28,7 +28,7 @@ jobs:
         run: python -m pytest astrbot_plugin_xinxian/tests/ -q
       - name: main.py __init__ 赋值顺序检查
         # #31/#35 两次生产事故均为 __init__ 内配置字典"先用后定义"的
-        # UnboundLocalError（CLAUDE.md 强制检查项，进 CI 固化）
+        # UnboundLocalError（AGENTS.md 强制检查项，进 CI 固化）
         run: |
           python - <<'PY'
           import ast, sys
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: 私有凭据与运行时数据不得被跟踪
         run: |
-          if git ls-files | grep -E 'tokens\.txt|CLAUDE\.local\.md|xinxian\.db|\.mimosa|__pycache__|\.pytest_cache|Zone\.Identifier|\.log$'; then
+          if git ls-files | grep -E 'tokens\.txt|CLAUDE\.local\.md|AGENTS\.local\.md|xinxian\.db|\.mimosa|__pycache__|\.pytest_cache|Zone\.Identifier|\.log$'; then
             echo "⛔ 私有凭据/运行时数据被 git 跟踪，禁止合并"
             exit 1
           fi
@@ -101,7 +101,7 @@ jobs:
               | grep -vE '^\.github/workflows/ci\.yml:[0-9]+:' \
               | sed -E "/^api\/rank_image\.py:[0-9]+:/ s#[^'\":,[:space:]]*fonts/[^'\":,[:space:]]*##g" \
               | grep -E '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot'; then
-            echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 CLAUDE.md §1）"
+            echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 AGENTS.md §1）"
             exit 1
           fi
           echo "✅ 无部署细节泄露"

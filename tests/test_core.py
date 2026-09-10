@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 # CI 等无 AstrBot 的环境：注入最小桩 astrbot.api.logger——本仓库测试
-# 契约是离线可跑（CLAUDE.md），taskregistry 模块级与服务层 lazy import
+# 契约是离线可跑（AGENTS.md），taskregistry 模块级与服务层 lazy import
 # 的 logger 需要它（容器内有真实 astrbot 时不生效，仍用真 logger）
 try:
     from astrbot.api import logger  # noqa: F401
