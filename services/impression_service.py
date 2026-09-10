@@ -71,8 +71,12 @@ class ImpressionService:
                     self._registry.spawn(coro, name=f"impression:{group_id}/{user_id}")
                 else:
                     task = asyncio.create_task(coro)  # 测试兜底：本例无后续引用需求
-        except Exception:
-            pass  # 印象是增值功能，任何失败都不影响主链路
+        except Exception as e:
+            # 印象是增值功能，任何失败都不影响主链路——但触发调度失败
+            # 连 spawn 都没发生，运维必须可见（2026-09-11 审查：原为纯 pass）
+            from astrbot.api import logger as _logger
+
+            _logger.debug(f"[心弦] 印象刷新调度失败（跳过本轮）: {e}", exc_info=True)
 
     async def refresh_now(
         self, group_id: str, user_id: str, umo: str = ""
