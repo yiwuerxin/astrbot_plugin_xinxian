@@ -20,6 +20,7 @@ from __future__ import annotations
 from astrbot.api import logger
 
 from ..core.decimal import round1
+from ..core.maisoul_probe import resolve_maisoul_api
 
 # 连续同向情绪增益表（maisoul core/emotion.FEEDBACK_GAIN 同款，索引 |pfb|）
 FEEDBACK_GAIN: tuple[float, ...] = (1.0, 1.0, 1.1, 1.2, 1.4, 1.7, 1.9, 2.0)
@@ -30,28 +31,16 @@ _LEVEL_WORDS_DOWN = {1: ("委屈", 0.5), 2: ("悲伤", 0.7)}
 
 
 def _maisoul_api(context):
-    """麦麦插件 facade（无则 None）。
+    """麦麦插件 facade（无则 None）——探测唯一实现在 core/maisoul_probe。
 
-    名称直查失败时鸭子类型兜底：生产部署的插件目录/注册名可能是本地化
-    名（本机实报 2026-09-11：目录「麦麦之魂」下 get_registered_star
-    ("astrbot_plugin_maisoul") 返回 None，调制/跃迁推送/模型联动三路
-    同时静默失效）——遍历已加载 star，认挂了完整情绪 facade 的那个。"""
-    try:
-        star = context.get_registered_star("astrbot_plugin_maisoul")
-        api = getattr(getattr(star, "star_cls", None), "api", None)
-        if not hasattr(api, "get_feedback"):
-            api = None
-        if api is None:
-            for st in context.get_all_stars() or []:
-                cand = getattr(getattr(st, "star_cls", None), "api", None)
-                if callable(getattr(cand, "get_feedback", None)) and callable(
-                    getattr(cand, "apply_emotion_event", None)
-                ):
-                    api = cand
-                    break
-        return api if hasattr(api, "get_feedback") else None
-    except Exception:
-        return None
+    事故复盘：本函数曾与 judge_service 的模型联动各持一份
+    探测副本，桥修复鸭子兜底时漏了那路，本地化目录名下三路联动静默
+    失效数日。静默契约不变，但每个降级点补 debug 留痕——降级与可观
+    测性不冲突。"""
+    api = resolve_maisoul_api(context)
+    if api is None:
+        logger.debug("[心弦] 麦麦 facade 未探测到，联动本轮空转")
+    return api
 
 
 async def modulate_delta(context, group_id: str, delta: float) -> float:
@@ -63,11 +52,13 @@ async def modulate_delta(context, group_id: str, delta: float) -> float:
         return delta
     try:
         fb = await api.get_feedback(str(group_id))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[心弦] 读麦麦 pfb 失败，增量不调制: {e}")
         return delta
     if not isinstance(fb, dict):
         # 畸形真值（字符串/对象等）：fb.get 会抛 AttributeError——模块契约
         # 是任何失败都返回原值，绝不把异常抛回评审链路（Sourcery #64）
+        logger.debug(f"[心弦] 麦麦 pfb 畸形（{type(fb).__name__}），增量不调制")
         return delta
     try:
         pfb = int(fb.get("pfb") or 0)
@@ -107,5 +98,6 @@ async def notify_level_change(
                 f"已注入麦麦情绪事件「{word}」(强度 {intensity})"
             )
         return ok
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[心弦] 注入麦麦情绪事件失败（跃迁推送跳过）: {e}")
         return False

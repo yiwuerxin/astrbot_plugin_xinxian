@@ -2563,3 +2563,99 @@ def test_maisoul_api_duck_fallback():
         return await eb.modulate_delta(_Ctx(None, [_Star(real)]), "g1", 1.0)
 
     assert asyncio.run(_run()) == 1.1
+
+
+# ---------------- v1.31.1 探测下沉 + 主写路径原子化 ----------------
+
+
+class TestMaisoulProbe:
+    """core/maisoul_probe：跨插件探测的唯一实现（三路联动共用）。
+
+    事故背景：探测逻辑曾在 emotion_bridge 与 judge_service 各持一份，
+    桥修复鸭子兜底时漏了模型联动那路——本地化目录名下静默失明数日。"""
+
+    def _probe(self):
+        from astrbot_plugin_xinxian.core.maisoul_probe import resolve_maisoul_api
+
+        return resolve_maisoul_api
+
+    def _fakes(self):
+        class _Api:
+            async def get_feedback(self, gid):
+                return {"pfb": 0}
+
+            async def apply_emotion_event(self, gid, word, intensity=0.5):
+                return True
+
+            async def get_replyer_provider(self):
+                return "PROV"
+
+        class _Star:
+            def __init__(self, api):
+                self.star_cls = type("S", (), {"api": api})()
+
+        class _Ctx:
+            def __init__(self, by_name, all_stars):
+                self._by_name, self._all = by_name, all_stars
+
+            def get_registered_star(self, name):
+                return self._by_name
+
+            def get_all_stars(self):
+                return self._all
+
+        return _Api, _Star, _Ctx
+
+    def test_direct_hit_by_name(self):
+        resolve = self._probe()
+        _Api, _Star, _Ctx = self._fakes()
+        real = _Api()
+        assert resolve(_Ctx(_Star(real), [])) is real
+
+    def test_model_linkage_survives_localized_dir_name(self):
+        """核心回归：名字直查恒 None（本地化目录名部署）时，模型联动
+        （required=get_replyer_provider）也必须经鸭子兜底命中——修复前
+        judge_service 持有的是无兜底的独立副本，follow_maisoul 失明。"""
+        resolve = self._probe()
+        _Api, _Star, _Ctx = self._fakes()
+        real = _Api()
+        ctx = _Ctx(None, [_Star(object()), _Star(real)])
+        assert resolve(ctx, required=("get_replyer_provider",)) is real
+
+    def test_required_surface_filters_partial_facade(self):
+        """只挂了情绪面、没有联动方法的 star 不能被模型联动认领。"""
+        resolve = self._probe()
+
+        class _EmotionOnly:
+            async def get_feedback(self, gid):
+                return {"pfb": 0}
+
+            async def apply_emotion_event(self, gid, word, intensity=0.5):
+                return True
+
+        class _Star:
+            def __init__(self, api):
+                self.star_cls = type("S", (), {"api": api})()
+
+        class _Ctx:
+            def get_registered_star(self, name):
+                return None
+
+            def get_all_stars(self):
+                return [_Star(_EmotionOnly())]
+
+        assert resolve(_Ctx(), required=("get_replyer_provider",)) is None
+        # 情绪面默认要求仍命中
+        assert resolve(_Ctx()) is not None
+
+    def test_probe_never_raises(self):
+        """探测异常（context 缺方法/抛错）一律 None，不抛回调用方。"""
+        resolve = self._probe()
+
+        class _Boom:
+            def get_registered_star(self, name):
+                raise RuntimeError("framework exploded")
+
+        assert resolve(_Boom()) is None
+        assert resolve(object()) is None
+        assert resolve(None) is None
