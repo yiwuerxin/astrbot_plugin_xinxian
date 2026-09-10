@@ -86,21 +86,14 @@ class JudgeService:
     ) -> JudgeResult | None:
         """评估一条消息对小千的态度。返回 None 表示跳过或降级。"""
         if not self._enabled or not text.strip():
-            logger.info("[心弦][obs] judge 跳过: 未启用或空文本")
             return None
         if self._only_when_at_or_reply and not (has_at_bot or is_reply_bot):
-            logger.info(
-                f"[心弦][obs] judge 跳过: @/回复门 has_at={has_at_bot} reply={is_reply_bot}"
-            )
             return None
 
         group_id, user_id = event.get_group_id(), event.get_sender_id()
         now = time.time()
         last = await self._storage.last_event_at(group_id, user_id, "judge")
         if last is not None and now - last < self._cooldown_sec:
-            logger.info(
-                f"[心弦][obs] judge 跳过: 冷却 {now - last:.0f}s/{self._cooldown_sec}s"
-            )
             return None
         # 冷却占位：评估前先落 touch，并发消息不会双重评估（检查与调用之间
         # 隔着真实的 LLM I/O，事后 touch 存在竞态窗口）。代价是 provider/解析
@@ -109,7 +102,6 @@ class JudgeService:
 
         provider = await self._resolve_provider(event)
         if provider is None:
-            logger.info("[心弦][obs] judge 跳过: provider 解析失败")
             return None
 
         try:
@@ -145,9 +137,7 @@ class JudgeService:
 
         result = self._parse(content)
         if result is None:
-            logger.info(f"[心弦][obs] judge 解析失败: {content[:80]!r}")
             return None
-        logger.info(f"[心弦][obs] judge 成功: {result.attitude} delta={result.delta}")
         return result
 
     async def _resolve_provider(self, event: AstrMessageEvent):
