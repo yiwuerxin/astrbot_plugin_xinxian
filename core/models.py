@@ -87,6 +87,8 @@ class FavorChange:
         source: 来源标识：judge / admin / api / undo 等。
         clamped: 是否被冷却或每日上限截断过。
         favor_after: 变化后的好感度。
+        favor_before: 变化前的好感度（与落库同一事务内的权威基线；
+            零变化路径与 after 同值。供等级跃迁判定免事务外预读）。
     """
 
     delta: float
@@ -94,3 +96,4 @@ class FavorChange:
     source: str
     clamped: bool = False
     favor_after: float = 0.0
+    favor_before: float | None = None

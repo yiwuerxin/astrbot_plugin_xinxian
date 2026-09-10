@@ -2440,3 +2440,47 @@ class TestEmotionBridge:
 
     def test_notify_no_maisoul_false(self):
         assert not self._notify(self._ctx_none(), "陌生", "认识")
+
+    def test_modulate_malformed_fb_passthrough(self):
+        # Sourcery #64：get_feedback 返回畸形真值（非映射）不得把异常抛回评审链
+        class JunkApi:
+            async def get_feedback(gid):
+                return "not-a-mapping"
+
+        class _StarJ:
+            star_cls = type("S", (), {"api": JunkApi()})()
+
+        class _CtxJ:
+            @staticmethod
+            def get_registered_star(_name):
+                return _StarJ()
+
+        assert self._modulate(_CtxJ(), 0.5) == 0.5
+
+
+class TestFavorChangeBaseline:
+    """apply_judge 回传同事务 favor_before（等级跃迁判定的权威基线）。"""
+
+    def setup_method(self):
+        import tempfile
+
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+
+        self.dir = tempfile.mkdtemp()
+        self.storage = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.storage.init())
+        self.svc = FavorService(self.storage, LevelTable.from_config(None))
+
+    def test_change_carries_authoritative_before(self):
+        # 建初值 10（认识档下沿），加 0.5 后 before=10.0 / after=10.5
+        asyncio.run(self.svc.set_favor("g", "u", 10.0, source="admin"))
+        change = asyncio.run(self.svc.apply_judge("g", "u", 0.5))
+        assert change.delta == 0.5
+        assert change.favor_before == 10.0
+        assert change.favor_after == 10.5
+
+    def test_zero_paths_carry_before_equals_after(self):
+        asyncio.run(self.svc.set_favor("g", "u", 12.0, source="admin"))
+        change = asyncio.run(self.svc.change("g", "u", 0.0, reason="api"))
+        assert change.delta == 0
+        assert change.favor_before == change.favor_after

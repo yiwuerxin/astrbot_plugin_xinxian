@@ -102,13 +102,10 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                 # §6.6 方向①：评审增量先按麦麦连续情绪（pfb）调制——同向
                 # 放大/异向缩小（调制在经济学层之前，防通胀仍由后者收口）
                 delta = result.delta
-                before_lv = None
-                if deps.emotion_coupling and deps.context is not None:
+                coupled = deps.emotion_coupling and deps.context is not None
+                if coupled:
                     delta = await emotion_bridge.modulate_delta(
                         deps.context, group_id, delta
-                    )
-                    before_lv = deps.favor.level_of(
-                        (await deps.favor.get(group_id, user_id)).favor
                     )
                 change = await deps.favor.apply_judge(
                     group_id,
@@ -122,12 +119,14 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                         f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
                         f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
                     )
-                    # §6.6 方向②：等级跃迁向麦麦注入情绪事件（失败静默）
-                    if before_lv is not None:
+                    # §6.6 方向②：等级跃迁向麦麦注入情绪事件（失败静默）。
+                    # 基线用 apply_judge 回传的同事务 favor_before——事务外
+                    # 预读会被并发的其他好感更新夹在中间，判定成陈旧等级
+                    if coupled and change.favor_before is not None:
                         await emotion_bridge.notify_level_change(
                             deps.context,
                             group_id,
-                            before_lv,
+                            deps.favor.level_of(change.favor_before),
                             deps.favor.level_of(change.favor_after),
                             deps.favor.level_order(),
                         )

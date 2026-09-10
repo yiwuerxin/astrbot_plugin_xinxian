@@ -372,7 +372,12 @@ class FavorService:
             )
             if eco.delta == 0:
                 return FavorChange(
-                    0, reason, "judge", clamped=True, favor_after=rec0.favor
+                    0,
+                    reason,
+                    "judge",
+                    clamped=True,
+                    favor_after=rec0.favor,
+                    favor_before=rec0.favor,
                 )
             delta = eco.delta
         change = await self._apply_one(
@@ -469,13 +474,25 @@ class FavorService:
             if last is not None and now - last < cooldown_sec:
                 rec = await self.get(group_id, user_id)
                 return FavorChange(
-                    0, reason, source, clamped=True, favor_after=rec.favor
+                    0,
+                    reason,
+                    source,
+                    clamped=True,
+                    favor_after=rec.favor,
+                    favor_before=rec.favor,
                 )
         # 2. 每日双向限幅
         allowed, capped = await self._cap_by_daily(group_id, user_id, delta)
         if allowed == 0:
             rec = await self.get(group_id, user_id)
-            return FavorChange(0, reason, source, clamped=True, favor_after=rec.favor)
+            return FavorChange(
+                0,
+                reason,
+                source,
+                clamped=True,
+                favor_after=rec.favor,
+                favor_before=rec.favor,
+            )
         # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛；
         #    无记录时以 default_favor 为基数，而非 0）
         rec, real = await self._storage.apply_delta(
@@ -510,6 +527,8 @@ class FavorService:
             source,
             clamped=capped or real != allowed,
             favor_after=rec.favor,
+            # 权威基线：与 add_log 同源（落库后回减 real），零漂移
+            favor_before=round1(rec.favor - real),
         )
 
     async def _cap_by_daily(

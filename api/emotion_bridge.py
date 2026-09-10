@@ -50,11 +50,13 @@ async def modulate_delta(context, group_id: str, delta: float) -> float:
         fb = await api.get_feedback(str(group_id))
     except Exception:
         return delta
-    if not fb:
+    if not isinstance(fb, dict):
+        # 畸形真值（字符串/对象等）：fb.get 会抛 AttributeError——模块契约
+        # 是任何失败都返回原值，绝不把异常抛回评审链路（Sourcery #64）
         return delta
     try:
         pfb = int(fb.get("pfb") or 0)
-    except (TypeError, ValueError):
+    except Exception:
         return delta
     if not pfb:
         return delta
