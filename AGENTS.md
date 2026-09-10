@@ -166,6 +166,7 @@ Review every diff hunk against §1 and §2 — do not trust the PR body's claims
 | 1.29.0 | #55 | economy feel presets `default/galgame/realistic`（preset 垫底、显式参数覆盖） |
 | 1.29.1 | #56 | fix: restore the missing `await` on `recent_events` (injection chain silently dead) |
 | 1.29.2 | #57 | fix: migrate stale `master_guidance` defaults on saved configs (literal-match old defaults only) |
+| 1.31.1 | — | 监听器优先级修复（priority=1 恒先于麦麦之魂的 -1000 stop_event，饿死评审引擎）+ 联动探测下沉 `core/maisoul_probe`（模型联动补鸭子兜底，本地化目录名下不再失明）+ 主写路径单事务化（数值+额度+流水+冷却一个 commit，`synchronous=NORMAL` 补齐三件套）+ core 零框架 import（taskregistry logger 惰性解析）+ 静默降级补 debug 留痕 |
 | 1.31.0 | #64 | emotion↔favor coupling with astrbot_plugin_maisoul（数值面）：judge model follows maisoul replyer (`follow_maisoul_replyer`，last-used 优先、静默降级)；方向① pfb 调制评审增益（同向最高×2/异向÷2，调制在经济层之前）；方向② 等级跃迁注入情绪事件（升→安心/开心，降→委屈/悲伤）；`coupling.enabled` 总开关 |
 | 1.30.0 | — | GOAL 加固批次：X1 流水精确匹配（fuzzy 仅 WebUI）；X2 注入链路防护+模板装配期校验；X3 LLM 超时（judge.timeout_sec）；X4 撤销单事务（apply_undo）；X7 面板经服务+undo/refresh 改 POST；X8 排行图 to_thread+临时图延迟清理；X9 重读线程池；X10 TaskRegistry；P-F 评审清洗+防注入声明；P-C 带权印象点（schema v9，默认关）；P-H facade.get_profile |
 | 1.29.3 | #58 | refactor: `ImpressionService` split out of FavorService; pinyin maps → `core/naming.py`, tier anchors single-sourced; SQLite upserts merged (`touch` preserves decay-anchor semantics); fixes: cap fallback defaults aligned to schema (4/8), rank-image temp PNG cleanup, nickname cache cap, structured impression-refresh result; decay-floor docstring corrected (two levels) |
