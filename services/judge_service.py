@@ -141,7 +141,9 @@ class JudgeService:
 
         result = self._parse(content)
         if result is None:
-            logger.debug(f"[心弦] judge 输出解析失败（本轮放弃，冷却照常）: {content[:80]!r}")
+            logger.debug(
+                f"[心弦] judge 输出解析失败（本轮放弃，冷却照常）: {content[:80]!r}"
+            )
             return None
         return result
 
@@ -175,9 +177,7 @@ class JudgeService:
         facade 无该 API / 解析失败 / 无可用 provider 一律返回 None，
         调用方回落自有链——联动是增强不是依赖。"""
         try:
-            api = resolve_maisoul_api(
-                self._context, required=("get_replyer_provider",)
-            )
+            api = resolve_maisoul_api(self._context, required=("get_replyer_provider",))
             if api is None:
                 return None
             prov = await api.get_replyer_provider()

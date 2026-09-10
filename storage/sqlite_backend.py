@@ -146,8 +146,15 @@ class SQLiteBackend(StorageBackend):
         with self._lock:
             conn = self._c()
             new_value, real_delta, new_h = self._compute_favor_write(
-                conn, group_id, user_id, delta, max_favor, min_favor, decay,
-                default_favor, now,
+                conn,
+                group_id,
+                user_id,
+                delta,
+                max_favor,
+                min_favor,
+                decay,
+                default_favor,
+                now,
             )
             conn.execute(
                 "INSERT INTO favor(group_id, user_id, favor, updated_at, half_life) VALUES(?,?,?,?,?) "
@@ -190,8 +197,15 @@ class SQLiteBackend(StorageBackend):
             try:
                 conn.execute("BEGIN")
                 new_value, real_delta, new_h = self._compute_favor_write(
-                    conn, group_id, user_id, delta, max_favor, min_favor, decay,
-                    default_favor, now,
+                    conn,
+                    group_id,
+                    user_id,
+                    delta,
+                    max_favor,
+                    min_favor,
+                    decay,
+                    default_favor,
+                    now,
                 )
                 conn.execute(
                     "INSERT INTO favor(group_id, user_id, favor, updated_at, half_life) VALUES(?,?,?,?,?) "

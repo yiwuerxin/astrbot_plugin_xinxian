@@ -2663,6 +2663,7 @@ class TestMaisoulProbe:
 
 # ---------------- X-P1c 主写路径单事务 ----------------
 
+
 class TestApplyFavorChangeAtomic:
     """X-P1c：主写路径（数值+额度+流水+冷却）单事务原子。
 
