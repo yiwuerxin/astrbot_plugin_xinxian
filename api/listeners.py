@@ -19,6 +19,7 @@ from ..core.decimal import fmt
 from ..core.sanitize import sanitize_text
 from ..core.taskregistry import TaskRegistry
 from ..services.favor_service import FavorService
+from . import emotion_bridge
 from ..services.impression_service import ImpressionService
 from ..services.inject_service import InjectService
 from ..services.judge_service import JudgeService
@@ -43,6 +44,10 @@ class Deps:
     memory_days: int = 7
     memory_sig_threshold: float = 0.0
     memory_sig_window_mult: float = 1.0
+    # §6.6 情绪耦合（v1.31.0）：context 供跨插件取麦麦 facade；
+    # 开关只控本侧调用，麦麦侧两个总开关任一关闭桥也自动空转
+    context: object | None = None
+    emotion_coupling: bool = True
 
 
 def _chain_flags(event: AstrMessageEvent) -> tuple[bool, bool]:
@@ -94,10 +99,21 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                 event, text, has_at_bot=has_at_bot, is_reply_bot=is_reply_bot
             )
             if result is not None and result.delta:
+                # §6.6 方向①：评审增量先按麦麦连续情绪（pfb）调制——同向
+                # 放大/异向缩小（调制在经济学层之前，防通胀仍由后者收口）
+                delta = result.delta
+                before_lv = None
+                if deps.emotion_coupling and deps.context is not None:
+                    delta = await emotion_bridge.modulate_delta(
+                        deps.context, group_id, delta
+                    )
+                    before_lv = deps.favor.level_of(
+                        (await deps.favor.get(group_id, user_id)).favor
+                    )
                 change = await deps.favor.apply_judge(
                     group_id,
                     user_id,
-                    result.delta,
+                    delta,
                     reason=result.reason or f"judge:{result.attitude}",
                     message=text,
                 )
@@ -106,6 +122,15 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                         f"[心弦] {group_id}/{user_id} 评估[{result.attitude}] "
                         f"{change.delta:+.1f} -> {fmt(change.favor_after)}"
                     )
+                    # §6.6 方向②：等级跃迁向麦麦注入情绪事件（失败静默）
+                    if before_lv is not None:
+                        await emotion_bridge.notify_level_change(
+                            deps.context,
+                            group_id,
+                            before_lv,
+                            deps.favor.level_of(change.favor_after),
+                            deps.favor.level_order(),
+                        )
                     if deps.impressions is not None:
                         await deps.impressions.maybe_refresh(
                             group_id,

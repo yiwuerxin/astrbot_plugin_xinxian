@@ -202,6 +202,10 @@ class FavorService:
     def level_of(self, favor: float) -> LevelDef:
         return self._levels.level_of(favor)
 
+    def level_order(self) -> dict[str, int]:
+        """等级名 → 升序序位（v1.31.0 情绪耦合用：判定等级跃迁方向/档数）。"""
+        return {lv.name: i for i, lv in enumerate(self._levels.all())}
+
     def is_master(self, user_id: str) -> bool:
         return _is_master(user_id, self._master_ids)
 

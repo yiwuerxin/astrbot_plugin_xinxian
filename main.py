@@ -57,7 +57,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.30.0",
+    "1.31.0",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -176,6 +176,7 @@ class XinxianPlugin(Star):
             attitude_deltas=attitude_deltas,
             roster=(judge_cfg.get("roster") or "").strip(),
             timeout_sec=float(judge_cfg.get("timeout_sec", 60)),
+            follow_maisoul=bool(judge_cfg.get("follow_maisoul_replyer", True)),
         )
 
         # 后台任务注册表（X10）：评审/印象/延迟清理统一持引用，卸载时
@@ -202,6 +203,9 @@ class XinxianPlugin(Star):
             memory_days=int(inject_cfg.get("memory_days", 7)),
             memory_sig_threshold=float(inject_cfg.get("memory_sig_threshold", 1.0)),
             memory_sig_window_mult=float(inject_cfg.get("memory_sig_window_mult", 3.0)),
+            # §6.6 情绪耦合（v1.31.0）：context 取麦麦 facade；开关只控本侧
+            context=context,
+            emotion_coupling=bool((config.get("coupling") or {}).get("enabled", True)),
         )
         cmd_cfg = config.get("command") or {}
         self._ranking_limit = int(cmd_cfg.get("ranking_limit", 10))
