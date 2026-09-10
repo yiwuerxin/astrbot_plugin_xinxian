@@ -55,6 +55,7 @@ class JudgeService:
         attitude_deltas: dict[str, float] | None = None,
         roster: str = "",
         timeout_sec: float = 60.0,
+        follow_maisoul: bool = True,
     ) -> None:
         self._context = context
         self._storage = storage
@@ -65,6 +66,7 @@ class JudgeService:
         self._only_when_at_or_reply = only_when_at_or_reply
         self._prompt_template = prompt_template
         self._force_session_model = force_session_model
+        self._follow_maisoul = follow_maisoul
         self._context_window = context_window
         self._follow_persona = follow_persona
         self._bot_name = bot_name
@@ -139,8 +141,17 @@ class JudgeService:
         return result
 
     async def _resolve_provider(self, event: AstrMessageEvent):
-        """解析评估用模型：force_session_model 或 provider_id 留空时，跟随会话当前（主）模型。"""
+        """解析评估用模型：麦麦联动 > force_session_model/provider_id > 会话主模型。
+
+        follow_maisoul（默认开）优先取麦麦 replyer 当前绑定的 provider——
+        "麦麦用什么模型说话就用什么模型打分"，人格口径一致；且不受
+        narrative_reason 强制会话模型的约束（会话主模型可能已失效——
+        本机实报 422）。任何失败静默降级到自有链。"""
         try:
+            if self._follow_maisoul:
+                prov = await self._maisoul_replyer_provider()
+                if prov is not None:
+                    return prov
             if self._provider_id and not self._force_session_model:
                 return self._context.get_provider_by_id(self._provider_id)
             umo = getattr(event, "unified_msg_origin", "") if event else ""
@@ -148,6 +159,23 @@ class JudgeService:
             return await res if inspect.isawaitable(res) else res
         except Exception as e:
             logger.warning(f"[心弦] 获取 provider 失败（已静默降级）: {e}")
+            return None
+
+    async def _maisoul_replyer_provider(self):
+        """麦麦插件在场时取其 replyer 绑定的 provider（v1.31.0 模型联动）。
+
+        未装麦麦 / facade 无该 API / 解析失败 / 无可用 provider 一律返回
+        None，调用方回落自有链——联动是增强不是依赖。"""
+        try:
+            star = self._context.get_registered_star("astrbot_plugin_maisoul")
+            api = getattr(getattr(star, "star_cls", None), "api", None)
+            if api is None or not hasattr(api, "get_replyer_provider"):
+                return None
+            prov = await api.get_replyer_provider()
+            if prov is not None:
+                logger.debug("[心弦] 评审模型跟随麦麦 replyer 绑定")
+            return prov
+        except Exception:
             return None
 
     async def _persona_ctx(self, event: AstrMessageEvent) -> tuple[str, str]:

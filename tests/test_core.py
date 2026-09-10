@@ -2342,3 +2342,145 @@ class TestConfigMigration:
                 cfg["levels"][key]["master_guidance"]
                 == schema["levels"]["items"][key]["items"]["master_guidance"]["default"]
             )
+
+
+class TestEmotionBridge:
+    """§6.6 情绪耦合桥：增益调制与等级跃迁注入（假 facade，离线可跑）。"""
+
+    def setup_method(self):
+        self.last_event = None
+
+    def _fake_api(self, pfb=0, fb_none=False, ok=True):
+        outer = self
+
+        async def get_feedback(gid):
+            if fb_none:
+                return None
+            return {"pfb": pfb, "valence": 0.5}
+
+        async def apply_emotion_event(gid, word, intensity=0.5):
+            outer.last_event = (gid, word, intensity)
+            return ok
+
+        return type(
+            "FakeApi",
+            (),
+            {
+                "get_feedback": staticmethod(get_feedback),
+                "apply_emotion_event": staticmethod(apply_emotion_event),
+            },
+        )()
+
+    def _ctx(self, api):
+        class _Star:
+            star_cls = type("S", (), {"api": api})()
+
+        class _Ctx:
+            @staticmethod
+            def get_registered_star(_name):
+                return _Star()
+
+        return _Ctx()
+
+    def _ctx_none(self):
+        class _CtxBoom:
+            @staticmethod
+            def get_registered_star(_name):
+                raise RuntimeError("插件不在场")
+
+        return _CtxBoom()
+
+    def _modulate(self, ctx, delta):
+        from astrbot_plugin_xinxian.api.emotion_bridge import modulate_delta
+
+        return asyncio.run(modulate_delta(ctx, "1", delta))
+
+    def test_modulate_no_maisoul_passthrough(self):
+        assert self._modulate(self._ctx_none(), 0.5) == 0.5
+
+    def test_modulate_fb_none_passthrough(self):
+        assert self._modulate(self._ctx(self._fake_api(fb_none=True)), 0.5) == 0.5
+
+    def test_modulate_zero_pfb_passthrough(self):
+        assert self._modulate(self._ctx(self._fake_api(pfb=0)), 0.5) == 0.5
+
+    def test_modulate_same_dir_amplified(self):
+        # pfb=+7 同向增益 ×2.0（MaiBot positive_feedback 原表）
+        assert self._modulate(self._ctx(self._fake_api(pfb=7)), 0.5) == 1.0
+
+    def test_modulate_opposite_dir_shrunk(self):
+        # pfb=-7 对正向增量 ÷2.0，round1 一位小数收敛
+        assert self._modulate(self._ctx(self._fake_api(pfb=-7)), 0.5) == 0.2
+
+    def test_modulate_opposite_dir_rounding(self):
+        # pfb=+3 对负向增量 ÷1.2 → -0.7（round1 收敛）
+        assert self._modulate(self._ctx(self._fake_api(pfb=3)), -0.8) == -0.7
+
+    def _notify(self, ctx, before, after):
+        from types import SimpleNamespace as NS
+
+        from astrbot_plugin_xinxian.api.emotion_bridge import notify_level_change
+
+        order = {"陌生": 0, "认识": 1, "友好": 2, "亲密": 3, "挚友": 4, "挚爱": 5}
+        return asyncio.run(
+            notify_level_change(ctx, "1", NS(name=before), NS(name=after), order)
+        )
+
+    def test_notify_same_level_no_event(self):
+        assert not self._notify(self._ctx(self._fake_api()), "认识", "认识")
+        assert self.last_event is None
+
+    def test_notify_level_up_one_step(self):
+        assert self._notify(self._ctx(self._fake_api()), "陌生", "认识")
+        assert self.last_event == ("1", "安心", 0.4)
+
+    def test_notify_level_down_two_steps(self):
+        assert self._notify(self._ctx(self._fake_api()), "友好", "陌生")
+        assert self.last_event == ("1", "悲伤", 0.7)
+
+    def test_notify_no_maisoul_false(self):
+        assert not self._notify(self._ctx_none(), "陌生", "认识")
+
+    def test_modulate_malformed_fb_passthrough(self):
+        # Sourcery #64：get_feedback 返回畸形真值（非映射）不得把异常抛回评审链
+        class JunkApi:
+            async def get_feedback(gid):
+                return "not-a-mapping"
+
+        class _StarJ:
+            star_cls = type("S", (), {"api": JunkApi()})()
+
+        class _CtxJ:
+            @staticmethod
+            def get_registered_star(_name):
+                return _StarJ()
+
+        assert self._modulate(_CtxJ(), 0.5) == 0.5
+
+
+class TestFavorChangeBaseline:
+    """apply_judge 回传同事务 favor_before（等级跃迁判定的权威基线）。"""
+
+    def setup_method(self):
+        import tempfile
+
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+
+        self.dir = tempfile.mkdtemp()
+        self.storage = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.storage.init())
+        self.svc = FavorService(self.storage, LevelTable.from_config(None))
+
+    def test_change_carries_authoritative_before(self):
+        # 建初值 10（认识档下沿），加 0.5 后 before=10.0 / after=10.5
+        asyncio.run(self.svc.set_favor("g", "u", 10.0, source="admin"))
+        change = asyncio.run(self.svc.apply_judge("g", "u", 0.5))
+        assert change.delta == 0.5
+        assert change.favor_before == 10.0
+        assert change.favor_after == 10.5
+
+    def test_zero_paths_carry_before_equals_after(self):
+        asyncio.run(self.svc.set_favor("g", "u", 12.0, source="admin"))
+        change = asyncio.run(self.svc.change("g", "u", 0.0, reason="api"))
+        assert change.delta == 0
+        assert change.favor_before == change.favor_after

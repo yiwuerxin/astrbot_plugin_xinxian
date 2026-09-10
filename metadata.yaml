@@ -2,7 +2,7 @@ name: astrbot_plugin_xinxian
 display_name: 心弦好感度
 short_desc: 小千的专属好感度系统
 desc: 为小千人格打造的好感度系统：LLM 情绪评估单引擎驱动（五档定性+自由给分），厌恶到挚爱七级好感阶段，每群独立记录，对话时自动注入态度指引，防通胀经济学让好感度按真实关系节奏增长。
-version: 1.30.0
+version: 1.31.0
 author: yiwuerxin
 repo: https://github.com/yiwuerxin/astrbot_plugin_xinxian
 support_platforms:

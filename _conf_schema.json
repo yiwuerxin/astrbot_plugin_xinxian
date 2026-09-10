@@ -124,6 +124,11 @@
             "description": "热情档区间上界锚点"
           }
         }
+      },
+      "follow_maisoul_replyer": {
+        "type": "bool",
+        "default": true,
+        "description": "检测到麦麦插件时，评估模型跟随其 replyer 当前绑定的模型（人格口径一致；未装麦麦/解析失败自动回落：narrative_reason 强制会话模型 > provider_id > 会话主模型）"
       }
     }
   },
@@ -663,6 +668,17 @@
             }
           }
         }
+      }
+    }
+  },
+  "coupling": {
+    "type": "object",
+    "description": "§6.6 情绪-关系耦合（与 astrbot_plugin_maisoul 双向数值联动）",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": true,
+        "description": "联动开关：方向①评审增益按麦麦连续情绪(pfb)调制（同向最高×2、异向最高÷2）；方向②好感等级跃迁向麦麦注入情绪事件。麦麦侧另有两个总开关（emotion_enable/emotion_feedback_enable），任一关闭本侧自动空转"
       }
     }
   }
