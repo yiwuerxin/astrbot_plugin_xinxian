@@ -493,34 +493,23 @@ class FavorService:
                 favor_after=rec.favor,
                 favor_before=rec.favor,
             )
-        # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛；
-        #    无记录时以 default_favor 为基数，而非 0）
-        rec, real = await self._storage.apply_delta(
+        # 3. 落库（存储层单事务：含 min_favor..max_favor 封顶 + 1 位小数收敛
+        #    + 当日额度 + 流水 + 冷却，一个 commit——X-P1c 原子化；无记录时以
+        #    default_favor 为基数，而非 0）
+        rec, real = await self._storage.apply_favor_change(
             group_id,
             user_id,
             allowed,
-            self.max_favor,
-            self.min_favor,
+            max_favor=self.max_favor,
+            min_favor=self.min_favor,
             decay=self._decay,
             default_favor=self.default_favor,
+            day=self._today().isoformat(),
+            reason=reason,
+            source=source,
+            message=message,
+            cooldown_key=cooldown_key,
         )
-        if real:
-            await self._storage.add_daily_gain(
-                group_id, user_id, self._today().isoformat(), real
-            )
-            await self._storage.add_log(
-                group_id,
-                user_id,
-                real,
-                round1(rec.favor - real),
-                rec.favor,
-                reason,
-                source,
-                now,
-                message,
-            )
-        if cooldown_key:
-            await self._storage.touch_event(group_id, user_id, cooldown_key, now)
         return FavorChange(
             real,
             reason,

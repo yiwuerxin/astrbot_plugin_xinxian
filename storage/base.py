@@ -53,6 +53,32 @@ class StorageBackend(ABC):
         """
 
     @abstractmethod
+    async def apply_favor_change(
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        *,
+        max_favor: float,
+        min_favor: float = -100.0,
+        decay: tuple[float, float, float, float] | None = None,
+        default_favor: float = 0.0,
+        day: str = "",
+        reason: str = "api",
+        source: str = "api",
+        message: str = "",
+        cooldown_key: str | None = None,
+    ) -> tuple[FavorRecord, float]:
+        """主写路径：数值变动 + 当日额度 + 流水（+ 冷却）单事务原子落库。
+
+        数值语义与 apply_delta 完全一致（衰减/封顶/收敛，见其 docstring）；
+        差别仅在 real≠0 时同事务补记 daily_gain 与 favor_log，cooldown_key
+        非空时同事务刷新冷却。任一步失败整体回滚——好感已变而流水/额度
+        缺失的漂移行（undo、里程碑、限幅记账全部失真）不可能再出现。
+        Returns: (更新后的记录, 实际生效的变化量)。
+        """
+
+    @abstractmethod
     async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:
         """直接设定好感度数值（精度一位小数）。"""
 

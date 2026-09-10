@@ -2659,3 +2659,48 @@ class TestMaisoulProbe:
         assert resolve(_Boom()) is None
         assert resolve(object()) is None
         assert resolve(None) is None
+
+
+# ---------------- X-P1c 主写路径单事务 ----------------
+
+class TestApplyFavorChangeAtomic:
+    """X-P1c：主写路径（数值+额度+流水+冷却）单事务原子。
+
+    修复前 apply_delta/add_daily_gain/add_log 各自 commit——流水写入
+    失败时好感已落库，留下"数值已变、记账缺失"的漂移行。"""
+
+    def setup_method(self):
+        import tempfile
+
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+
+        self.dir = tempfile.mkdtemp()
+        self.backend = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.backend.init())
+        # 放宽每日限幅：裸默认 4/8 会被基线一笔吃满，第二笔 allowed=0
+        # 走不进流水插入，原子性场景构造不出来
+        self.svc = FavorService(
+            self.backend,
+            LevelTable.from_config(None),
+            daily_cap_up=50,
+            daily_cap_down=50,
+        )
+
+    def test_log_failure_rolls_back_everything(self):
+        # 基线：一次正常变更（表完好时）。经济学层对陌生档有缩放，
+        # 基线取实际落库值而非传入值
+        base_change = asyncio.run(self.svc.change("g", "u", 5.0))
+        base_favor = asyncio.run(self.backend.get("g", "u")).favor
+        assert base_favor == base_change.favor_after
+        day = self.svc._today().isoformat()
+        base_gain = asyncio.run(self.backend.daily_gain("g", "u", day))
+        assert base_gain == base_change.delta
+        # 破坏流水表——主写路径的流水插入将在事务内失败
+        self.backend._conn.execute("DROP TABLE favor_log")
+        self.backend._conn.commit()
+        with pytest.raises(Exception):
+            asyncio.run(self.svc.change("g", "u", 3.0))
+        # 整体回滚：好感不动、额度不多记（旧实现四次独立 commit，
+        # 此处 favor 已 +3 而流水/额度记账缺失——漂移行）
+        assert asyncio.run(self.backend.get("g", "u")).favor == base_favor
+        assert asyncio.run(self.backend.daily_gain("g", "u", day)) == base_gain
