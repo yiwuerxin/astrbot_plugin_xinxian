@@ -2503,3 +2503,17 @@ class TestFavorChangeBaseline:
         change = asyncio.run(self.svc.change("g", "u", 0.0, reason="api"))
         assert change.delta == 0
         assert change.favor_before == change.favor_after
+
+
+def test_listener_priority_before_maisoul():
+    """群监听器优先级必须先于麦麦之魂（实际部署环境实证）。
+
+    maisoul 以 priority=-1000 全面接管并对每条消息 stop_event；框架
+    star_handler 排序为 sort(key=-priority)（数字大者先跑），本插件监听器
+    若晚于它运行，事件传播被掐断——@ 消息零送达监听器、评审零执行、
+    favor 恒 0.0、cooldown 表全空。评审是纯后台观察者，priority=1 恒先于
+    -1000 无副作用。源码文本比对（装饰器参数离线无法实例化验证）。"""
+    main_txt = (Path(__file__).resolve().parent.parent / "main.py").read_text(
+        encoding="utf-8"
+    )
+    assert "GROUP_MESSAGE, priority=1" in main_txt

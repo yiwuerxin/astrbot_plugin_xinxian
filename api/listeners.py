@@ -7,6 +7,8 @@ on_llm_request：向 system_prompt 注入好感度档案。
 
 from __future__ import annotations
 
+import time
+
 import asyncio
 
 from dataclasses import dataclass
@@ -77,6 +79,11 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
     评审本身 fail-silent：后台任务的异常只记日志。
     """
     group_id, user_id = event.get_group_id(), event.get_sender_id()
+    # 临时观测（2026-09-11 联动排障）：确认监听器实际收到哪些消息
+    logger.info(
+        f"[心弦][obs] 监听收到 gid={group_id} uid={user_id} "
+        f"at={time.strftime('%H:%M:%S')} text={str(event.message_str or '')[:30]!r}"
+    )
     if not group_id or not user_id:
         return
     if user_id == str(event.get_self_id() or ""):

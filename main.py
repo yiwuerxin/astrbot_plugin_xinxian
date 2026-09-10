@@ -238,7 +238,13 @@ class XinxianPlugin(Star):
 
     # ---------------- 事件钩子（薄壳转发） ----------------
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    # 优先级必须大于麦麦之魂的 -1000（框架 sort(key=-priority)：数字大者
+    # 先跑）——它全面接管并对消息 stop_event，会掐断排在它之后的监听器
+    # （实际部署环境观测：晚于它时 @ 消息零送达监听器，仅其忙碌期
+    # 早退未 stop 的漏网消息可达，评审引擎整体饿死、favor 恒 0.0）。
+    # 评审是纯后台观察者（不发消息），先于接管跑无副作用；文字唤醒默认
+    # 关，开启时由 _xinxian_cmd_done 防重。
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=1)
     async def _on_group_msg(self, event: AstrMessageEvent):
         # 文字唤醒：群里直接发文字（不用 /）触发查询指令；与 / 指令一致，之后照常跑评估引擎
         if self._text_wake_enabled and not getattr(event, "_xinxian_cmd_done", False):
