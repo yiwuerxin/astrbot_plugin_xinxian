@@ -442,6 +442,20 @@ class TestFavorService:
         rec = asyncio.run(svc.get("g1", "u1"))
         assert rec.favor == 0
 
+    def test_reset_group_wide(self, tmp_path):
+        # user_id=None：整群清除，波及 favor/favor_log/cooldown，不影响其他群
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, reason="示例", source="api"))
+        asyncio.run(svc.change("g1", "u2", 3, reason="示例", source="api"))
+        asyncio.run(svc.change("g2", "u1", 7, reason="示例", source="api"))
+        asyncio.run(svc._storage.touch_event("g1", "u1", "judge", 100.0))
+        asyncio.run(svc.reset("g1"))
+        assert asyncio.run(svc.get("g1", "u1")).favor == 0
+        assert asyncio.run(svc.get("g1", "u2")).favor == 0
+        assert asyncio.run(svc.get("g2", "u1")).favor == 7
+        assert asyncio.run(svc._storage.query_logs("g1", "u1")) == []
+        assert asyncio.run(svc._storage.last_event_at("g1", "u1", "judge")) is None
+
     def test_change_is_logged(self, tmp_path):
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 5, reason="手动", source="api"))
