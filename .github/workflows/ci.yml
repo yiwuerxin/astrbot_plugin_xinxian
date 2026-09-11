@@ -101,7 +101,7 @@ jobs:
               | grep -vE '^\.github/workflows/ci\.yml:[0-9]+:' \
               | sed -E "/^api\/rank_image\.py:[0-9]+:/ s#[^'\":,[:space:]]*fonts/[^'\":,[:space:]]*##g" \
               | grep -E '/home/[a-z]|/www/|/AstrBot/|127\.0\.0\.1|:6185|docker (exec|logs|restart) astrbot'; then
-            echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 AGENTS.md §1）"
+            echo "⛔ 命中本机部署细节，示例一律改用 <astrbot容器>/<端口> 等占位符（规范见 ARCHITECTURE.md 生产评审标准 §1）"
             exit 1
           fi
           echo "✅ 无部署细节泄露"
