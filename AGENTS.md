@@ -1,178 +1,129 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working in this repository (AGENTS.md 跨工具通用约定)。
+AI 编码代理在本仓库工作的通用约定。**只写规则，不写教程**——机制细节、背景叙事、评审标准全文与版本历史在 [ARCHITECTURE.md](ARCHITECTURE.md)，需要时再读。
 
-## What this is
+## 项目概述
 
-`astrbot_plugin_xinxian`（心弦好感度）is an AstrBot 4.x plugin that maintains a per-user, per-group "favorability" score for a chatbot persona named 小千 (Xiaoqian). All automatic favor changes come from a single engine: an LLM sentiment "judge" (the former deterministic rule engine — daily-first bonus — was removed in v1.21). The current score is injected into the LLM system prompt so the persona's tone tracks closeness (厌恶 → 陌生 → 认识 → 友好 → 亲密 → 挚友 → 挚爱, supporting negative values and one-decimal precision).
+`astrbot_plugin_xinxian`（心弦好感度）是 AstrBot 4.x 插件：为 persona「小千」维护每用户、每群的好感分（支持负值、一位小数），自动变动的唯一引擎是 LLM 情感评审（规则引擎 v1.21 已删），当前分数注入 system prompt 使语气随亲密度变化。层级/关系/主人三层正交覆盖数值，另有可选的时间衰减、成员印象标签、与 `astrbot_plugin_maisoul` 的数值面情绪耦合。
 
-Three orthogonal overlays sit on top of the raw number: **level** (cold→warm, from thresholds), **relationship** (friend/lover/family/… — the *role*, independent of warmth), and **master** (a text-only identity marker that never alters numeric logic). Optionally, **memory-style time decay** (v1.23, exponential forgetting curve with interaction-consolidated half-life) continuously pulls scores toward a baseline — active chatters decay slowly, silent ones fast. **Member impressions & tags** (v1.22) give 小千 a one-line "who this person is" profile per member, injected into the prompt. Optionally (v1.31.0), a **numeric-only emotion↔favor coupling** with `astrbot_plugin_maisoul`: the judge model follows the model maisoul's replyer actually used, judge deltas are modulated by maisoul's consecutive-emotion accumulator, and favor level transitions inject emotion events back — see Cross-plugin API below.
+领域词、配置键、命令、提示词、代码注释一律**中文**；代码标识符英文。
 
-Domain terms, config keys, commands, prompts, and code comments are **Chinese**; code identifiers are English. Match this convention.
+## 环境与命令
 
-## Commands
-
-No build step and no third-party runtime deps — only the Python standard library plus the AstrBot framework (imported as `astrbot.api.*`). There is no `requirements.txt`, `pyproject.toml`, lint, or type-check config. The only extra is **Pillow** for rank-image rendering: `commands.build_rank_image` imports `api/rank_image.py` locally (and that module does `from PIL import …` at its top), so the plugin loads fine without Pillow — only rendering an image needs it.
-
-CI（每个 PR 的 pull_request 触发；push 仅 main 分支触发——特性分支直推不带 PR 不跑）：pytest 矩阵（3.10/3.12，离线无 AstrBot）+ `main.py` `__init__` 赋值顺序 AST 检查 + 敏感数据与纯净交付检查（私有凭据/运行时数据禁跟踪、令牌模式、部署细节占位符规范、疑似真实 QQ/群号扫描——占位符白名单 `123456789`，`tests/` 豁免合成时间戳，`.github` 只豁免 ci.yml 自身、rank_image 的 fonts 路径按子串剥离后复检）+ 代码格式检查（`format-check.yml`：black 26.5.1 锁版本，全库已完成格式化基线，新改动保持 black 干净）。另有 CodeQL 工作流占位（`codeql.yml`，仅手动触发——个人账号私有仓无 Advanced Security 无法运行；仓库转公开或组织 GHAS 后改回 push/pull_request 触发即生效）。
+- 无构建步骤、无第三方运行时依赖（标准库 + AstrBot 框架）。唯一可选项 **Pillow**：仅排行图渲染需要，`api/rank_image.py` 局部导入——缺它插件照常加载。
+- 无独立 runner：实机运行 clone 进 `AstrBot/data/plugins/astrbot_plugin_xinxian/` 后重启 AstrBot。
+- CI（PR 触发；push 仅 main）：pytest 矩阵（3.10/3.12，离线无 AstrBot）+ AST 检查 + 敏感数据与纯净交付扫描 + black 26.5.1 格式门。另有 CodeQL 占位工作流（仅手动触发，仓库转公开后改回自动）。
 
 ```bash
-pip install pytest black==26.5.1   # test + format-check dependencies
-black --check .                    # format gate (CI-enforced)
-pytest tests/ -v                   # run the full suite (count per pytest output)
-pytest tests/test_core.py::TestFavorService -v          # one test class
-pytest tests/test_core.py::TestMigration::test_v1_to_v2_round_trip -v   # one test
-python3 - <<'EOF'                  # AST check: no local var used before assignment in __init__ (guards the #31/#35 bug class)
+pip install pytest black==26.5.1    # 测试与格式检查依赖
+pytest tests/ -q                    # 全量套件（数量以输出为准，文档不硬编码）
+pytest tests/test_core.py::TestFavorService -v                             # 单个测试类
+pytest tests/test_core.py::TestMigration::test_v1_to_v2_round_trip -v    # 单个用例
+black --check .                     # 格式门（CI 强制）
+python3 - <<'EOF'                   # AST 检查：__init__ 内禁止局部变量先用后赋值（与 CI 同版）
 import ast, sys
 tree = ast.parse(open('main.py', encoding='utf-8').read())
-init = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '__init__')
+init = next(n for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == '__init__')
 assigned = {}
+def _mark(target, lineno):
+    # 赋值目标形态全覆盖：普通/增强/注解赋值、for/with 绑定、
+    # except as、海象——漏一种就有"先用后定义"逃逸
+    if isinstance(target, ast.Name):
+        assigned.setdefault(target.id, lineno)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for el in target.elts:
+            _mark(el, lineno)
 for node in ast.walk(init):
     if isinstance(node, ast.Assign):
         for t in node.targets:
-            if isinstance(t, ast.Name): assigned.setdefault(t.id, node.lineno)
-bad = [n.id for n in ast.walk(init) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+            _mark(t, node.lineno)
+    elif isinstance(node, ast.AugAssign):
+        _mark(node.target, node.lineno)
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        # 纯注解（x: int 无值）不绑定运行时值，不记——记了会掩盖真实的先用后定义
+        _mark(node.target, node.lineno)
+    elif isinstance(node, (ast.For, ast.AsyncFor)):
+        _mark(node.target, node.lineno)
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            if item.optional_vars is not None:
+                _mark(item.optional_vars, node.lineno)
+    # 推导式目标不记：Py3 推导式是独立作用域，不绑定 __init__ 局部名
+    elif isinstance(node, ast.ExceptHandler) and node.name:
+        assigned.setdefault(node.name, node.lineno)
+    elif isinstance(node, ast.NamedExpr):
+        _mark(node.target, node.lineno)
+bad = [n.id for n in ast.walk(init)
+       if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
        and n.id in assigned and assigned[n.id] > n.lineno]
-sys.exit("ORDER BUG: %s" % bad if bad else 0)
+sys.exit(f"ORDER BUG: {bad}" if bad else 0)
 EOF
 ```
 
-**Run the AST check before every commit that touches `main.py`** — the #31 and #35 production outages were both UnboundLocalError from config dicts defined after their use site in `__init__`.
+## 测试规则
 
-Tests are hermetic: they exercise only `core/` and `storage/` (plus `FavorService` and `InjectService`, which transitively import only those), so **they run without AstrBot installed**. `tests/test_core.py` inserts the plugin's parent directory onto `sys.path` and imports as the `astrbot_plugin_xinxian` package, so invoke pytest from anywhere. Do not import `services/judge_service`, `api/`, or `main.py` in tests — those pull in `astrbot` and break hermeticity. (Don't hardcode test counts in docs — they drift every release. On the dev host, `/usr/bin/python3` is PEP-668 managed: `pip3 install pytest --break-system-packages` once, then `python3 -m pytest tests/ -q`.)
+- 测试密闭靠**桩**：`test_core.py` 头部在无 AstrBot 的环境注入最小桩 `astrbot.api.logger`（容器内有真框架时用真的）。因此只依赖 `astrbot.api.logger` 的模块都离线可跑：`core/`、`storage/`、`services/favor_service`、`services/inject_service`、`api/emotion_bridge` 及惰性解析 logger 的模块。
+- 禁止在测试里 import 需要真实框架面的模块——`services/judge_service`（要 `astrbot.api.star.Context`）、`api/listeners`、`api/page_api`、`main.py`：桩满足不了，会破坏离线可跑。
+- **目录名陷阱**：`test_core.py` 把插件父目录插上 `sys.path` 后按包名 `astrbot_plugin_xinxian` 导入。被测目录必须叫这个名字（CI 检出布局满足）；本地用 worktree/挂载验证时，若旁边存在同名目录会 import 到错树、得到假结果。
+- 触碰 `main.py` 的每次提交必跑上面的 AST 检查——#31/#35 两次生产事故都是 `__init__` 里配置字典先用后定义的 `UnboundLocalError`。
+- 新逻辑必须配新测试，不是"没坏就行"；失败路径要真的失败过一次，不是空验证。
 
-The plugin has no standalone runner. To run it live, clone into `AstrBot/data/plugins/astrbot_plugin_xinxian/` and restart AstrBot. All persisted data lives in `data/plugin_data/astrbot_plugin_xinxian/xinxian.db` (SQLite, local only).
+## 架构规则
 
-## Architecture
+- 单向分层 `main.py → api/ → services/ → core/ + storage/`；`core/` 零框架 import（不许模块级 `import astrbot`，需要 logger 就惰性解析）。
+- `main.py` 是组合根、`@filter` 钩子唯一挂载点：钩子方法只做一行转发，逻辑写在 `api/` 的 handler。无个人自查命令（已刻意删除），唯一查询面是全群排行图。
+- `FavorService` 是数值变动唯一咽喉，入口只有 `apply_judge` / `change` / `set_favor` / undo；新增变动方式必须走既有入口，禁止 ad-hoc `sqlite3` 写库。
+- 主写路径 `apply_favor_change` 单事务（数值+当日额度+流水+冷却一个 commit，任一步失败整体回滚）；数值语义与 `apply_delta` 共用 `_compute_favor_write` 单一实现。
+- judge 冷却必须在 provider 调用**前** `touch_event` 预留（`apply_judge` 恒传 `cooldown_key=None`）。
+- `round1()` 在**每个写边界**调用（`core/decimal.py` 单一来源）——漏一处浮点噪声就可能翻掉 `clamped` 标志，专项测试盯防。
+- 衰减读写不对称是承重设计：读只显示有效值不动库；写必须先衰减到当下再叠加、正向巩固半衰期；禁止新增绕过预衰减的写路径。
+- 后台任务一律经 `Deps.registry.spawn`（持强引用，裸 `create_task` 会被 GC）；评审/印象/衰减/联动全部 fail-silent：任何失败降级为"无变化"，绝不把异常抛进聊天管线。
+- 注入对 `system_prompt` **只追加**，绝不覆盖。
+- `api/facade.py` 跨插件 API 只加不改签名。
+- 跨插件探测唯一实现 `core/maisoul_probe.py::resolve_maisoul_api`——禁止再复制探测逻辑（历史分叉副本静默失明数日）。
+- 群监听器是纯观察者：`priority=1000`（框架 `sort(key=-priority)` 大者先跑），不发声、不 stop_event。
+- schema 迁移三处联动：`MIGRATIONS` 追加 + `SCHEMA_VERSION` 递增 + `pragma_version.py` 加分支（PRAGMA 不能参数化）；每版本独立事务且显式 `BEGIN`。
+- SQL 一律全字面量 + `?` 参数化，**表名也不插值**。
+- 配置默认值/类型只从 `_conf_schema.json` 读，不硬编码；`from_config` 必须接受部分配置；数值配置钳到安全范围。
+- 拼音↔中文键位映射唯一来源 `core/naming.py`；judge prompt 的档位区间从锚点渲染（`tier_ranges_line` → `{tier_ranges}`），绝不硬编码进模板文本。
 
-Strict one-way layering: `main.py` → `api/` → `services/` → `core/` + `storage/`. `core/` depends on nothing outer and is the unit-testable domain core.
+## 代码风格
 
-**`main.py` is the composition root and the *only* place `@filter` hooks live.** AstrBot scans `@filter` decorators only on `Star` subclass instance methods, so `XinxianPlugin` carries thin shell methods (`_on_group_msg`, `_on_llm_req`, `_cmd_*`, `_tool_*`) that just forward to pure handler functions in `api/`. When adding a command/listener/LLM-tool, add the logic as a handler in `api/` and a one-line shell method here — do not put logic in the shell. The constructor wires the full graph in order: `storage → levels → services (favor → judge → impressions → inject) → Deps → facade → PageApi`. There is **no self-query command** (e.g. `/好感度`); the personal-query command was deliberately removed and all querying is now the all-group ranking image.
+- black 26.5.1 锁版本，新改动必须干净。
+- 注释写**约束与契约**（为什么不能这样做），不写改动过程叙事。
 
-**`services/favor_service.py::FavorService` is the single chokepoint for every numeric change.** All mutations funnel through `_apply_one`, which enforces the anti-abuse layers in order: (1) bidirectional daily cap (`daily_cap_up`/`daily_cap_down` on net daily gain, day boundary per the `timezone` config — default `Asia/Shanghai` since v1.26.5), (2) min/max clamp at the storage write. `default_favor` is honored on first write (`apply_delta(default_favor=...)`; `touch_nickname` pre-creates the row at `default_favor`). Entry points: `apply_judge` (the LLM engine — its cooldown lives in `JudgeService`, passed `cooldown_key=None`; runs the economy layer first), `change` (API/admin, still daily-capped), `set_favor` (admin set, bypasses daily cap entirely, hard-clamps to range), and `undo_preview`/`undo_log` (dashboard undo — reverse-delta via `set_favor` with `source="undo"`, marks the original log row `reversed`). `set_relationship` and `touch_nickname` write only their own column and never touch favor. If you add a new way to change favor, go through one of these.
+## 红线与禁令（公开仓库，生产运行）
 
-**One favor engine runs per group message** (`api/listeners.py::on_group_message`): `JudgeService.judge` → `apply_judge` (the rule engine was removed in v1.21 — all automatic change is LLM-judged). Since v1.26.1 the whole judge+apply+nickname path runs in a **background task** (via `Deps.registry.spawn`, X10 — bare `asyncio.create_task` remains only as a registered test fallback) — AstrBot's pipeline awaits each stage serially (`pipeline/scheduler.py::_process_stages`), and a synchronous judge LLM call would block the reply for the very messages that trigger it (@/reply). Judging is a post-hoc score: it only affects the *next* message's injection, so the current message must not wait for it. Event-derived values (group/user/nick/text/chain flags/umo) are extracted **before** scheduling the task; the task body is fail-silent (exception → warning log only). Before `apply_judge`, when the coupling is on, `api/emotion_bridge.modulate_delta` scales the judged delta by maisoul's pfb (same-direction up to ×2.0, opposite ÷ same table — applied *before* the economy layer so anti-inflation still has the final word). After a successful nonzero `apply_judge`, the same task also calls `ImpressionService.maybe_refresh` (impression cadence lives in the impressions service, not in the favor path), and `emotion_bridge.notify_level_change` compares the level of `FavorChange.favor_before` vs `favor_after` (same-transaction baseline, v1.31.0 — never pre-read favor outside the apply, a concurrent write would poison the transition detection) to inject an emotion event into maisoul. Both bridge calls are fail-silent: maisoul absent / facade missing / either side's switches off → original value or no-op. The judge engine is **fail-silent by design** — any provider/parse/cooldown miss returns `None` and never affects the conversation. The per-user cooldown is **reserved via `touch_event` before the provider call** (the check and a post-call touch straddle real LLM I/O — a race window for concurrent messages); the trade-off is that failed evaluations also consume the cooldown window. Identity is always taken from the event (`get_group_id`/`get_sender_id`/`get_self_id`); never parse identity out of injected prompt text.
+**绝不**：
+- 真实用户数据进任何提交或 PR 文本：QQ 号、昵称/外号、群号、聊天摘录、真实好感数值、真实评审理由/印象、真实人格名。示例一律占位：QQ `123456789`、昵称「阿狸」、数值 `50.0`。
+- 凭据、服务器路径、部署细节进仓库——只属于 `AGENTS.local.md`（已 gitignore）；未跟踪的 `.mimosa/` 同样不提交。
+- 数据外发超出"消息文本 → 用户配置的评审 provider"：无遥测、无 phone-home、无硬编码 URL fetch，违者直接拒。
+- 独立 server/端口/鉴权——面板挂 AstrBot 主面板（`register_web_api`），继承框架鉴权。
+- 新增存储消息内容的列而不论证：必须说明数据流（碰什么数据、去哪、是否最小化）并保持 ≤200 字截断（对齐 `favor_log.message`）。
+- 合并 PR（owner yiwuerxin 审合每一个，绝不自动/经 API 合并）；触碰 `xinxian.db*`；读取插件目录外的资源文件。
 
-**`core/decimal.py` is the single source of truth for one-decimal rounding and display.** The whole float-drift control strategy is: call `round1()` at *every write boundary* (storage `apply_delta`/`set_value`, `set_favor`, inside `_cap_by_daily`, and the `daily_gain` read). Several tests (`test_decimal_accumulation`, `test_clamped_not_tripped_by_float_noise`, `test_daily_cap_decimal`) exist specifically to catch regressions where a missing `round1` lets IEEE-754 noise flip the `clamped` flag. When touching any code path that computes a delta, preserved value, or cap remainder, keep applying `round1` at the boundary. `fmt()` renders integers without a trailing `.0`.
+**先问再做**：修改 `.github/workflows/`；与他人 PR 的版本号冲突协调。
 
-**Time decay** (`core/decay.py`, config `decay.*`, off by default) follows the **exponential forgetting curve with consolidation**: `effective = baseline + (stored−baseline)·0.5^(idle_days/h)` — Ebbinghaus-shaped decay applied *continuously* (no grace-period cliff; even active chatters decay, just slowly). The half-life `h` is per-member (schema v8 column `half_life`, default 10 days) and **consolidates SM-2 style**: every positive delta write multiplies h by `half_life_growth` (default 1.3) up to `half_life_max` (default 60) — a daily chatter's h grows to the cap and loses only ~1.1%/day, a silent newcomer at h=10 loses ~6.6%/day. Negative/neutral deltas never reduce h (an offense doesn't erase "knowing you"). Read/write asymmetry is load-bearing: on **read** (`FavorService._effective`, needs the record's `half_life`) the *effective* value is shown but the stored value is untouched; on **write** (`SQLiteBackend.apply_delta`, inside the lock) the stored value is first decayed to "now", the new delta added, and — if positive — the consolidated h persisted in the same statement. Never add a write path that skips this pre-decay. Admin `set_favor` does not consolidate h.
+**开 PR 后自查**：经 API 拉取 PR 正文，grep 真实标识（QQ/昵称/群号/数值），命中立即 PATCH。
 
-**Relationships** (`core/relationship.py`, config `relationship.*`, off by default) tag each member with a role key (`friend`/`soulmate`/`lover`/`family`/`disliked`, plus any custom label). Stored in `favor.relationship` (v4 column), they are **orthogonal to favor** — warmth is the number, role is the label. `RelationshipTable.resolve` maps a stored key → `(label, guidance)`; unknown values become custom labels with a generic guidance. The role feeds two surfaces: an injected "你们的关系" block, and the dashboard/rank-image display label.
+## Git 与 PR 规范
 
-**Storage is backend-abstracted.** `services` depend only on `storage/base.py::StorageBackend` (ABC). `SQLiteBackend` is the default: synchronous `sqlite3` with `check_same_thread=False`, a module-level `threading.Lock`, WAL, `busy_timeout`, and `synchronous=NORMAL` (the full concurrency trio); read-modify-write happens atomically inside the lock. The main write path `apply_favor_change` (favor + daily gain + log + cooldown) commits in a **single transaction** (X-P1c, same pattern as `apply_undo`). To add a backend (JSON/Redis/…), implement the ABC and swap the one line in `main.py` that constructs `SQLiteBackend` — upper layers are agnostic.
+- 分支命名：`feat/<scope>-<topic>` / `fix/<topic>` / `chore/<topic>`。
+- 提交：中文 Conventional Commits（`feat(webui): …`）；摘要一行、动词开头；正文写**为什么**（改前问题、理由、副作用），72 列手动换行；不列文件清单；禁止"修复 bug/更新代码"式空摘要。
+- PR 四段：**改动简述**（用户可感知的变化，即 changelog 条目）/ **为什么改**（业务问题或用户可见 bug）/ **核心改动**（只挑 1–2 个关键文件或风险点，UI 改动附前后截图）/ **测试情况**。合格线：reviewer 不点开 Files changed 就能看懂。
+- 流程：从 main 开分支 → `pytest tests/ -q` 绿 → push → 开 PR 到 main → **停**，报告 PR 链接等 owner。
+- 版本：`metadata.yaml` 与 `main.py @register()` 字符串同步 bump、与代码同 PR；`fix`→patch、`feat`→minor、`BREAKING CHANGE`→major。
+- 发版：owner 合并后打 annotated tag（`vX.Y.Z`，tag 注解正文即 Release Notes：一句题辞 + 主要新增/优化/修复分组 + 显式 PR 链接），push tag 触发 `release.yml`。部署仅 owner 合并后进行（细节见 AGENTS.local.md）。
+- 外部 PR 评审：逐 hunk 核对红线与正确性，**不信 PR 正文声明**，本地 fetch head 验证；必要时自行 rebase 解冲突（对 PR 分支强推已授权）。
 
-**Schema evolution uses `PRAGMA user_version`** (`storage/migrations.py`; current `SCHEMA_VERSION = 9`). To add a version: append a DDL/DML list to `MIGRATIONS`, bump `SCHEMA_VERSION`, AND add a branch to `storage/pragma_version.py` (`set_user_version` uses fixed literal per-version branches because PRAGMA cannot be parameterized). Each version runs in its own transaction; note the explicit `BEGIN` is mandatory because a version's first statement may be DDL, which would otherwise auto-commit and defeat rollback. v2 (INTEGER→REAL affinity for negatives/decimals, via the build-new-table/copy/drop/rename rebuild) is the worked example of a non-trivial migration. The pattern for adding a per-member field is: new `ALTER TABLE … ADD COLUMN` migration → add the field to `FavorRecord` → thread it through `SELECT`/`INSERT … ON CONFLICT` in `SQLiteBackend` → surface it. (See v4 `relationship` and v5 `nickname`.) `favor_log` (v3) is the change journal that powers both the dashboard and injected "近期印象"; v6 added `message` (triggering speech, judge path only) and `reversed` (undo flag); v7 added the per-member impression triple (`impression` text, `tags` JSON-array string, `impression_at`); v8 added `half_life` (per-member decay half-life in days, default 10); v9 added `points` (P-C weighted impression points, `[{point,weight,ts}]` JSON-array string, off by default).
+## 文档索引
 
-**Prompt injection** (`services/inject_service.py`) renders one block from a template and **appends** it to `system_prompt` — never overwrites, so it coexists with other injecting plugins. The template placeholders are `{nickname}` `{user_id}` `{master_line}` `{favor}` `{max_favor}` `{level_name}` `{level_guidance}` `{disclosure}` `{recent_events}` `{relationship}`. `{disclosure}` (self-disclosure pacing per level, `core/levels.py::DEFAULT_DISCLOSURE`, config `levels.*.disclosure`, SPT-grounded: deeper level = deeper self-disclosure), `{recent_events}` and `{relationship}` render to empty strings when there is nothing to show, so a template *without* those placeholders simply disables those features. `recent_events` comes from `FavorService.recent_events` (last `memory_count` changes within `memory_days`; significant events with |delta| ≥ `memory_sig_threshold` get their window multiplied by `memory_sig_window_mult` — MemoryBank-style importance weighting; reversed rows are never injected). If `persona_anchor` is non-empty, it is appended after the block (anti-out-of-character anchor); it does not move into the template.
-
-**Rank image + dashboard** are the two read surfaces, both driven by `FavorService.standings` (effective favor, level, relationship, idle days, decayed flag). `api/rank_image.py::render_ranking` is pure PIL: a column-major grid (top-left highest, down then next column), querier highlighted, 千咲 color palette, CJK font auto-probed from a candidate list with PIL-default fallback. `api/page_api.py::PageApi` registers four GET handlers on AstrBot's **main dashboard** via `context.register_web_api` (logs / groups / users / undo; served by the framework on its own port, auth inherited — no standalone server/port/auth in this plugin); the frontend is `pages/dashboard/` (Vue 3 via CDN, mounted through the AstrBotPluginPage bridge). `register_web_api` or Quart may be absent in older frameworks — `PageApi.register` fails silent.
-
-## Cross-plugin API and config
-
-**`api/facade.py::XinxianFacade`** is the stable public API for other AstrBot plugins. It is constructed as `self.api` on the Star instance and accessed via `context.get_registered_star("astrbot_plugin_xinxian").star_cls.api`. Its contract is **additive only — never rename or change a method signature**, only add new ones. Current methods: `get_favor`, `get_level`, `add_favor` (daily-capped), `set_favor`, `get_ranking`, `is_master`, `get_relationship`, `set_relationship`.
-
-**The coupling is one-directional in code, bidirectional in numbers** (`api/emotion_bridge.py`, v1.31.0): xinxian *consumes* maisoul's facade (`get_feedback` / `apply_emotion_event` / `get_replyer_provider`) discovered via the single shared probe `core/maisoul_probe.py::resolve_maisoul_api` (v1.31.1: name lookup first, duck-typed `get_all_stars` fallback — a localized (non-English) plugin dir name defeats the name lookup; before the fix, `judge_service` held a divergent copy of this logic and model-follow silently died for days). Numeric exchange only — no prompt rendering on either side (the removed P-H lesson). Master switches live on maisoul (`emotion_enable` / `emotion_feedback_enable`); this side only has `judge.follow_maisoul_replyer` and `coupling.enabled` (both default on — with maisoul off they are no-ops). Every cross-plugin call is wrapped fail-silent: coupling is an enhancement, never a dependency.
-
-`_conf_schema.json` defines all WebUI-editable config (read defaults/types there; don't hardcode). `core/levels.py::LevelTable.from_config` and `core/relationship.py::RelationshipTable.from_config` each fall back to built-in defaults for any missing key, so partial config is always valid. The pinyin↔Chinese key maps for levels, economy multipliers, and judge tiers all live in **`core/naming.py`** (single source, v1.29.3) — never redeclare them locally.
-
-## Development workflow
-
-1. Branch from `main` using the repo's convention: `feat/<scope>-<topic>` / `fix/<topic>` / `chore/<topic>` (see history: `feat/webui-chisaki-theme`, `fix/undo-get-modal`).
-2. Make changes, run `pytest tests/ -q` (must stay green), commit with conventional-style Chinese summaries (`feat(webui): …`, `fix(inject): …`).
-3. Push the branch and open a PR to `main` (title mirrors the branch intent, e.g. "feat(rank-image): …"), then **STOP — do not merge it**. The owner (yiwuerxin) reviews and merges every PR; merging is never automated, never via API. Report the PR URL and wait.
-4. Bump `metadata.yaml` `version` on release commits (`chore(release): vX.Y.Z`), keeping the `@register(...)` string in `main.py` in sync (both read `1.30.0`).
-
-Host-specific details — working-copy/production directory layout, deploy procedure, credentials location, network quirks, and the current pending-deploy state — live in **`AGENTS.local.md`**, which is gitignored. **Never commit that file or anything from it.**
-
-An untracked `.mimosa/` directory (security-scan artifacts) may exist — leave it out of commits.
-
-## Production review standard — this repo is public
-
-This plugin runs in production for many users. Every PR is reviewed against this standard before merge; the reviewer (human or agent) must verify each item and state the result in the PR.
-
-### 1. Privacy & data (the hard rules)
-
-- **No real user data in any commit or PR text**: QQ numbers, nicknames/外号, group IDs, chat excerpts, real favor values, real judge reasons/impressions. Examples in README / `_conf_schema.json` / code comments / tests must use obvious placeholders (`123456789`, `阿狸`, round numbers like `50.0`). PR titles/bodies read like a product changelog: behavior changes only, no production numbers or scenes.
-- **Credentials & infra never in the repo**: tokens, host paths, server/container layout, deploy runbooks, production state. These belong in `AGENTS.local.md` only (gitignored).
-- **Data-flow inventory (what a new feature must answer)**: what user data does it touch (message text? QQ? nickname?), where does it go (local SQLite only ⇄ sent to an LLM provider ⇄ rendered into prompts/images), and is it minimal? New columns/fields storing message content must be justified — `favor_log.message` (v6) stores at most a 200-char excerpt, judge path only; keep that bound for anything similar.
-- **LLM egress is the only external flow**: message text goes to the configured judge provider (and nothing else). Any new feature that sends data to a third party beyond the configured provider is rejected outright. No telemetry, no phone-home, no fetch to any hardcoded URL.
-- **Local-only storage**: everything persists in `data/plugin_data/astrbot_plugin_xinxian/xinxian.db`; the dashboard inherits AstrBot's own auth — never add a standalone server/port/credentials.
-
-### 2. Correctness & robustness (production-grade code)
-
-- `pytest tests/ -q` green (count grows with the change; new logic needs new tests, not just "didn't break"), plus the AST `__init__` order check when `main.py` changes (#31/#35 lineage).
-- Fail-silent is the design for all enhancement paths (judge, impressions, decay): any provider/parse/storage failure must degrade to "no change", never raise into the chat pipeline. Background tasks hold references (`asyncio.create_task` result kept in a set — bare tasks can be GC'd mid-flight).
-- Concurrency: the storage layer has a module lock; new write paths must go through `FavorService._apply_one`/existing backend methods — no ad-hoc `sqlite3` calls. Judge cooldown reserves via `touch_event` *before* the LLM call.
-- Config never trusted blind: numeric configs clamped to sane ranges (see the half-life fuses), missing keys fall back to defaults, `from_config` must accept partial config.
-- Resource reads (`resources/prompts/`, fonts) stay inside the plugin dir; SQL stays parameterized (no f-string SQL with user input — `query_logs`' LIKE on user_id is internal-use only, never fed raw user text).
-
-### 3. External PRs (from outside contributors)
-
-Review every diff hunk against §1 and §2 — do not trust the PR body's claims; verify locally (`git fetch pull/N/head` → run tests → probe the claimed bug on main). Rebase onto latest main resolving conflicts yourself when needed (force-push to the PR branch is authorized; state what the rebase did in a PR comment). Version numbers: coordinator bumps if colliding with an already-merged release.
-
-### 4. Release & deploy discipline
-
-- `metadata.yaml` and `@register()` version strings bumped together, same PR as the code. Version follows Conventional Commits: `fix:` → patch, `feat:` → minor, `feat!`/`BREAKING CHANGE` → major.
-- PR self-check after opening: grep the PR body for real identifiers (QQ/nicknames/groups/values) and PATCH if any leak.
-- Deploy only after owner merge: tar-sync code files (excluding `.git`/caches/`tokens.txt`/`AGENTS.local.md`), reload plugin via dashboard API, verify the loaded version in logs, never touch `xinxian.db*`.
-
-### 5. Commit & PR writing standard (industry norms, applies to external PRs too)
-
-**Commit message** — Conventional Commits 1.0.0 (`conventionalcommits.org`; colloquially "Angular convention" — Angular is an adopter, not the author):
-- Format `<type>(<scope>): <summary>`. Types: `build/ci/docs/feat/fix/perf/refactor/test` (feat = new feature, fix = bug fix, per spec). Scope optional (module name, e.g. `inject`, `webui`, `economy`).
-- Summary: imperative, no trailing period, short — ≤72 chars is the hard line (GitHub truncates; ~50 preferred, a rule of thumb not a law). Chinese summaries carry more per char, so the practical bar is "one line, verb-first".
-- Breaking changes: `feat!:`/`fix!:` before the colon, or a `BREAKING CHANGE:` footer.
-- Body (optional but expected for non-trivial commits): the *why* — what was wrong before, the reasoning, side effects. Wrap at 72 cols (git never auto-wraps). Do NOT list files or per-file changes (the diff shows that). NEVER just "fix bug"/"update"/"修改代码".
-- Name specific files ONLY for: file moves/renames (git shows those as delete+add — spell out "moved X to Y"), project-wide config changes (dependency versions, env vars), and external API/interface definitions.
-
-**PR description** — four sections, reviewer-facing:
-1. **改动简述** — one or two sentences, user-perceivable changes only (this doubles as the App-style changelog entry). No internal implementation details, no development narrative, no maintainer notes.
-2. **为什么改（背景）** — the business problem or user-facing bug, not the code walkthrough (Google eng-practices: code shows *what*, the description must carry *why*).
-3. **核心改动** — only the 1–2 pivotal files or risk points worth the reviewer's attention, never the full file list. UI changes require before/after screenshots or a short screen recording.
-4. **测试情况** — what was verified.
-- Self-test before submitting: a reviewer should grasp the change from the description alone without opening Files changed. If "优化" is all it says, it fails.
-
-## Conventions to preserve
-
-- Injection is **append-only** to `system_prompt`; master identity trusts QQ number only, never nickname (`core/identity.py`); master status is a text overlay in the injected profile plus a **dedicated per-level guidance set** (`core/levels.py::DEFAULT_MASTER_GUIDANCE`, config `levels.*.master_guidance`): when `is_master`, `LevelTable.guidance_of(favor, master=True)` swaps the 态度指引 line to master semantics — the split follows the sign, NOT the band: negative favor = 闹别扭 (grudge, not outsider-style厌恶), positive favor = normal positive relationship at varying closeness (生分→温和亲近→撒娇→黏人→依恋). Never frame positive low bands as conflict (别扭/冷战/和好). `InjectService.build_block` passes `is_master` through to `guidance_of`.
-- The judge protocol (v1.21) is **tier-anchored free-scoring**: the model outputs a tier (`敌意/冷淡/中性/友好/热情`), its own numeric `分值`, and a mandatory verbatim `证据:` quote for any non-neutral tier. The score IS the model's judgment; the tier only bounds it — `core/judge_parse.py::parse` clamps the score into the tier's window (each tier's anchor in `judge.attitude_deltas` is its boundary: 友好 ≤0.6, 热情 ≥1.8, etc.), corrects direction mismatches to the tier's anchor, and force-demotes evidence-less non-neutral verdicts to neutral. Legacy `态度:/分值:` output is auto-mapped for backward compat; `max_abs_delta` is the global ceiling. The score ranges printed in the prompt templates are **rendered from the same anchors** (`core/judge_prompt.py::tier_ranges_line` → `{tier_ranges}`) — never hardcode tier ranges in prompt text; adjacent anchors form continuous windows (敌意 [敌意锚, 冷淡锚) … 热情 [热情锚, \|max_abs\|]). Model resolution (v1.31.0): `judge.follow_maisoul_replyer` (default on) sits **above** both paths — it takes the provider maisoul's replyer actually used (last-used-first; binding chain on cold start) so the scoring model is the speaking model; any failure degrades silently to the existing chain. In that chain, `narrative_reason` forces the session (main) model and switches to `judge_prompt_narrative.txt` (adds a `理由:` line); otherwise a separate cheap `provider_id` (or session fallback) is used. `context_window` pulls recent text-only conversation turns into the judge call. **The judge prompt follows the AstrBot persona**: `JudgeService._persona_ctx` resolves the session's effective persona (conv.persona_id → `persona_manager.resolve_selected_persona`, same source as the main chain) per evaluation; templates get `{persona_name}` and `{persona_block}` (persona summary, ≤500 chars, empty-safe) via `core/judge_prompt.py::render`. Legacy custom templates containing only `{text}` keep working (`judge.follow_persona` = false pins it to `judge.bot_name`).
-- **Member impressions & tags** (v1.22, `core/impression.py` + `impression.*` config; maintained by `services/impression_service.py::ImpressionService` since v1.29.3 — not FavorService): every N effective judge deltas (default 8) `ImpressionService.maybe_refresh` (called from the listeners background task after a nonzero `apply_judge`) fires a background task that summarizes that member's last 20 judge log rows via one cheap LLM call (borrowing JudgeService's public `resolve_summary_provider`/`resolve_display_name` through `bind_summarizer`) into a one-line impression (≤80 chars) + ≤3 tags; deterministic `stats_tags` (常客/夜猫子/热情/毒舌) supplement LLM tags. Stored in the v7 columns, injected as `{impression}` (「TA 给你的印象」 block, empty-safe) in the inject template, shown in the WebUI users table + member-detail modal (`member`/`refresh_impression` endpoints) and editable via `/印象设置` (tags) / `/印象刷新` (immediate; `refresh_now` returns `(ok, msg)` — never sniff the message text for success). All failures are silent — impressions are an enhancement, never a dependency.
-- **Judge context extraction** (`core/judge_context.py::extract_history_text`): AstrBot 4.26 conversation history stores assistant replies as structured lists (`[{type:'think'|'text',...}]`); only `type=='text'` segments are extracted (think/images/tool calls skipped). `judge.roster` (free text, one mapping per line like `阿狸=123456789（群友外号示例）`) is injected into judge prompts via `{roster}` so the judge can resolve nicknames — set it in config when group members use 外号.
-- **Anti-inflation economy** (`core/level_economy.py`, config `economy.*`, on by default, judge path only): noise floor (|delta| < 0.5 → 0), negative weight ×1.5 (negativity bias), stage multipliers on positive deltas only (挚爱 0.2 … 认识 1.0 — social penetration: shallow interactions can't advance deep stages), same-day repeat decay (Nth positive judge of the day × max(0.25, 1-0.25·N)), and **trust repair window** (v1.26: after a judge delta ≤ -`repair_threshold` (2.0), positives are ×`repair_factor` (0.5) for `repair_hours` (48h) — trust is destroyed fast and rebuilt slow; reversed offenses don't trigger it; `FavorService._in_repair_window` reads the log). Applied inside `FavorService.apply_judge` before the daily cap; zeroed deltas produce no log row. Cross-plugin `change` bypasses this layer. `daily_cap_up` default 4 / `daily_cap_down` 8. The rule engine (daily_first bonus) was **removed in v1.21** — `core/events.py`, `apply_rules`, `is_first_today`, and the `rules.*` config section are gone; favor now changes only via judge/API/admin/undo.
-- `text_wake` lets a plain (non-`/`) message trigger the ranking image when it exactly matches a configured phrase; the `_xinxian_cmd_done` flag on the event prevents the `/` command and the wake path from both firing.
-- Prompt templates live in `resources/prompts/` and are loaded once via `_read_resource` in `main.py`; a non-empty `inject.template` config overrides the bundled `inject_template.txt`.
-
-## Version history & current state (2026-09-11)
-
-| Version | PR | What |
-|---|---|---|
-| 1.19.0 | #29 | judge prompt follows AstrBot persona (`{persona_name}`/`{persona_block}`); PRAGMA whitelist hardening |
-| 1.20.0 | #30 | five-tier free-scored judge + anti-inflation economy (noise floor / negative weight / stage multipliers / same-day decay); caps 4/8 |
-| 1.21.0 | #33 | rule engine **removed** (daily_first gone); tier-anchored free scoring with evidence gate |
-| 1.22.0 | #34 | member impressions & tags (schema v7, WebUI impression column + member modal + `/印象设置` `/印象刷新`); judge context extraction fix (4.26 structured history); `judge.roster` nickname map |
-| 1.23.0 | #36 | Ebbinghaus-style decay: `effective = baseline + (stored−baseline)·0.5^(idle/h)`, per-member half-life (schema v8, base 10d, ×1.3 per positive interaction, max 60d) |
-| 1.24.0 | #40 | per-level `master_guidance` (负好感＝闹别扭 semantics) |
-| 1.24.1 | #41 | master guidance semantics fix for low-positive band |
-| 1.25.0 | #42 | significance-weighted memory (`memory_sig_*`), disclosure ladder (`disclosure`), emotional mirroring line in inject template |
-| 1.26.0 | #43 | trust repair window (major offense ⇒ positives ×0.5 for 48h) |
-| 1.26.1 | #45 | judge+apply moved to a background `asyncio.create_task` — no longer blocks the reply to the triggering message |
-| 1.26.2 | #44 | robustness batch: prompt tier ranges single-sourced from anchors (敌意 window mismatch fixed); judge cooldown reserved **before** the LLM call; impression refresh via JudgeService public API + held task refs; `default_favor` honored on first write; half-life fuse + config clamps; `timezone` config for day boundaries; rank image falls back to text without Pillow |
-| 1.26.3 | #46 | `favor_log` message/reason truncated to 200 chars at write; production review standard added to this file |
-| 1.26.4 | #47 | WebUI member-table row-border misalignment fix |
-| 1.26.5 | #49 | daily-boundary timezone defaults to 东八区 (`Asia/Shanghai`) — no config needed |
-| 1.26.6 | #51 | background judge tasks hold strong refs (`_bg_tasks` set in `api/listeners.py`) — bare `create_task` results are weakly referenced by the loop and could be GC'd mid-flight |
-| 1.27.0 | #53 | peak-end weighted judging, level-modulated repair curve, decay floor（等级地板"最多跌两级"）, upgrade milestone injection, interaction-style ladder (`interaction`) |
-| 1.28.0 | #54 | impressions upgraded to bitemporal evolving profiles（「以前觉得…，最近…」双段式） |
-| 1.29.0 | #55 | economy feel presets `default/galgame/realistic`（preset 垫底、显式参数覆盖） |
-| 1.29.1 | #56 | fix: restore the missing `await` on `recent_events` (injection chain silently dead) |
-| 1.29.2 | #57 | fix: migrate stale `master_guidance` defaults on saved configs (literal-match old defaults only) |
-| 1.31.2 | #66 | 监听器优先级兜底（观察者 `priority=1000` 恒先于任何接管型监听器；框架 `sort(key=-priority)` 大者先跑，麦麦 ≥6.12.0 的 -1000 实排最后，饿死源应为更高/更早注册的接管者）+ 联动探测下沉 `core/maisoul_probe`（模型联动补鸭子兜底，本地化目录名下不再失明）+ 主写路径单事务化（数值+额度+流水+冷却一个 commit，`synchronous=NORMAL` 补齐三件套）+ core 零框架 import（taskregistry logger 惰性解析）+ 静默降级补 debug 留痕 |
-| 1.31.1 | #67 | fix: 清库（reset）SQL 改全字面量消除 f-string 插值（SAST 高危注入模式——核实不可利用，按生产标准模式归零）+ 整群清除分支补行为测试（daily_gain 记账/跨群隔离） |
-| 1.31.0 | #64 | emotion↔favor coupling with astrbot_plugin_maisoul（数值面）：judge model follows maisoul replyer (`follow_maisoul_replyer`，last-used 优先、静默降级)；方向① pfb 调制评审增益（同向最高×2/异向÷2，调制在经济层之前）；方向② 等级跃迁注入情绪事件（升→安心/开心，降→委屈/悲伤）；`coupling.enabled` 总开关 |
-| 1.30.0 | — | GOAL 加固批次：X1 流水精确匹配（fuzzy 仅 WebUI）；X2 注入链路防护+模板装配期校验；X3 LLM 超时（judge.timeout_sec）；X4 撤销单事务（apply_undo）；X7 面板经服务+undo/refresh 改 POST；X8 排行图 to_thread+临时图延迟清理；X9 重读线程池；X10 TaskRegistry；P-F 评审清洗+防注入声明；P-C 带权印象点（schema v9，默认关）；P-H facade.get_profile |
-| 1.29.3 | #58 | refactor: `ImpressionService` split out of FavorService; pinyin maps → `core/naming.py`, tier anchors single-sourced; SQLite upserts merged (`touch` preserves decay-anchor semantics); fixes: cap fallback defaults aligned to schema (4/8), rank-image temp PNG cleanup, nickname cache cap, structured impression-refresh result; decay-floor docstring corrected (two levels) |
-| — | #37 | docs sync: README 目录/测试数对齐，CLAUDE 版本历史与待办 |
-
-Hotfix lineage: #31 and #35 were identical `UnboundLocalError` production outages (config dict used before definition in `__init__`) — hence the mandatory AST check above.
-
-Current pending state (deploy plans, production config) lives in `AGENTS.local.md` — not in this file, which is public.
+| 文件 | 用途 |
+|---|---|
+| `ARCHITECTURE.md` | 架构与机制深读、生产评审标准全文、版本历史表（发版时在此补行） |
+| `AGENTS.local.md` | 本机私有：目录布局/部署/凭据/网络/待办（gitignored，**绝不提交**） |
+| `README.md` | 用户文档 |
+| `_conf_schema.json` | 全部配置的唯一真相（默认值/类型） |
+| `resources/prompts/` | 提示词模板（judge/inject），`inject.template` 配置可覆盖内置模板 |
+| `REFACTOR_NOTES.md` | 开发笔记（export-ignore，不随发布包） |
