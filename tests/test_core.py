@@ -442,6 +442,25 @@ class TestFavorService:
         rec = asyncio.run(svc.get("g1", "u1"))
         assert rec.favor == 0
 
+    def test_reset_group_wide(self, tmp_path):
+        # user_id=None：整群清除，波及 favor/daily_gain/cooldown/favor_log，不影响其他群
+        svc = _make_service(tmp_path)
+        asyncio.run(svc.change("g1", "u1", 5, reason="示例", source="api"))
+        asyncio.run(svc.change("g1", "u2", 3, reason="示例", source="api"))
+        asyncio.run(svc.change("g2", "u1", 7, reason="示例", source="api"))
+        asyncio.run(svc._storage.touch_event("g1", "u1", "judge", 100.0))
+        day = svc._today().isoformat()
+        # 前置断言：行确实存在（防 day 键算错导致后续清零断言空过）
+        assert asyncio.run(svc._storage.daily_gain("g1", "u1", day)) == 5.0
+        asyncio.run(svc.reset("g1"))
+        assert asyncio.run(svc.get("g1", "u1")).favor == 0
+        assert asyncio.run(svc.get("g1", "u2")).favor == 0
+        assert asyncio.run(svc.get("g2", "u1")).favor == 7
+        assert asyncio.run(svc._storage.query_logs("g1", "u1")) == []
+        assert asyncio.run(svc._storage.last_event_at("g1", "u1", "judge")) is None
+        assert asyncio.run(svc._storage.daily_gain("g1", "u1", day)) == 0
+        assert asyncio.run(svc._storage.daily_gain("g2", "u1", day)) == 7.0
+
     def test_change_is_logged(self, tmp_path):
         svc = _make_service(tmp_path)
         asyncio.run(svc.change("g1", "u1", 5, reason="手动", source="api"))

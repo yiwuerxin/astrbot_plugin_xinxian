@@ -366,17 +366,37 @@ class SQLiteBackend(StorageBackend):
             self._c().commit()
 
     async def reset(self, group_id: str, user_id: str | None = None) -> None:
+        # 生产标准：execute 的 SQL 保持全字面量（表名也不插值），值一律 ? 参数化
+        if user_id is None:
+            stmts = [
+                ("DELETE FROM favor WHERE group_id=?", (group_id,)),
+                ("DELETE FROM daily_gain WHERE group_id=?", (group_id,)),
+                ("DELETE FROM cooldown WHERE group_id=?", (group_id,)),
+                ("DELETE FROM favor_log WHERE group_id=?", (group_id,)),
+            ]
+        else:
+            stmts = [
+                (
+                    "DELETE FROM favor WHERE group_id=? AND user_id=?",
+                    (group_id, user_id),
+                ),
+                (
+                    "DELETE FROM daily_gain WHERE group_id=? AND user_id=?",
+                    (group_id, user_id),
+                ),
+                (
+                    "DELETE FROM cooldown WHERE group_id=? AND user_id=?",
+                    (group_id, user_id),
+                ),
+                (
+                    "DELETE FROM favor_log WHERE group_id=? AND user_id=?",
+                    (group_id, user_id),
+                ),
+            ]
         with self._lock:
             conn = self._c()
-            if user_id is None:
-                for table in ("favor", "daily_gain", "cooldown", "favor_log"):
-                    conn.execute(f"DELETE FROM {table} WHERE group_id=?", (group_id,))
-            else:
-                for table in ("favor", "daily_gain", "cooldown", "favor_log"):
-                    conn.execute(
-                        f"DELETE FROM {table} WHERE group_id=? AND user_id=?",
-                        (group_id, user_id),
-                    )
+            for sql, params in stmts:
+                conn.execute(sql, params)
             conn.commit()
 
     async def add_log(
