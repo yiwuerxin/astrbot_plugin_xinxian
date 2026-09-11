@@ -20,25 +20,51 @@ pytest tests/ -q                    # 全量套件（数量以输出为准，文
 pytest tests/test_core.py::TestFavorService -v                             # 单个测试类
 pytest tests/test_core.py::TestMigration::test_v1_to_v2_round_trip -v    # 单个用例
 black --check .                     # 格式门（CI 强制）
-python3 - <<'EOF'                   # AST 检查：__init__ 内禁止局部变量先用后赋值
+python3 - <<'EOF'                   # AST 检查：__init__ 内禁止局部变量先用后赋值（与 CI 同版）
 import ast, sys
 tree = ast.parse(open('main.py', encoding='utf-8').read())
-init = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '__init__')
+init = next(n for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == '__init__')
 assigned = {}
+def _mark(target, lineno):
+    # 赋值目标形态全覆盖：普通/增强/注解赋值、for/with 绑定、
+    # except as、海象——漏一种就有"先用后定义"逃逸
+    if isinstance(target, ast.Name):
+        assigned.setdefault(target.id, lineno)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for el in target.elts:
+            _mark(el, lineno)
 for node in ast.walk(init):
     if isinstance(node, ast.Assign):
         for t in node.targets:
-            if isinstance(t, ast.Name): assigned.setdefault(t.id, node.lineno)
-bad = [n.id for n in ast.walk(init) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+            _mark(t, node.lineno)
+    elif isinstance(node, ast.AugAssign):
+        _mark(node.target, node.lineno)
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        # 纯注解（x: int 无值）不绑定运行时值，不记——记了会掩盖真实的先用后定义
+        _mark(node.target, node.lineno)
+    elif isinstance(node, (ast.For, ast.AsyncFor)):
+        _mark(node.target, node.lineno)
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            if item.optional_vars is not None:
+                _mark(item.optional_vars, node.lineno)
+    # 推导式目标不记：Py3 推导式是独立作用域，不绑定 __init__ 局部名
+    elif isinstance(node, ast.ExceptHandler) and node.name:
+        assigned.setdefault(node.name, node.lineno)
+    elif isinstance(node, ast.NamedExpr):
+        _mark(node.target, node.lineno)
+bad = [n.id for n in ast.walk(init)
+       if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
        and n.id in assigned and assigned[n.id] > n.lineno]
-sys.exit("ORDER BUG: %s" % bad if bad else 0)
+sys.exit(f"ORDER BUG: {bad}" if bad else 0)
 EOF
 ```
 
 ## 测试规则
 
-- 测试密闭：只 import `core/`、`storage/`（及仅传递依赖它们的 `FavorService`/`InjectService`），无 AstrBot 也能跑。
-- 禁止在测试里 import `services/judge_service`、`api/`、`main.py`——会拉入 `astrbot` 破坏密闭性。
+- 测试密闭靠**桩**：`test_core.py` 头部在无 AstrBot 的环境注入最小桩 `astrbot.api.logger`（容器内有真框架时用真的）。因此只依赖 `astrbot.api.logger` 的模块都离线可跑：`core/`、`storage/`、`services/favor_service`、`services/inject_service`、`api/emotion_bridge` 及惰性解析 logger 的模块。
+- 禁止在测试里 import 需要真实框架面的模块——`services/judge_service`（要 `astrbot.api.star.Context`）、`api/listeners`、`api/page_api`、`main.py`：桩满足不了，会破坏离线可跑。
 - **目录名陷阱**：`test_core.py` 把插件父目录插上 `sys.path` 后按包名 `astrbot_plugin_xinxian` 导入。被测目录必须叫这个名字（CI 检出布局满足）；本地用 worktree/挂载验证时，若旁边存在同名目录会 import 到错树、得到假结果。
 - 触碰 `main.py` 的每次提交必跑上面的 AST 检查——#31/#35 两次生产事故都是 `__init__` 里配置字典先用后定义的 `UnboundLocalError`。
 - 新逻辑必须配新测试，不是"没坏就行"；失败路径要真的失败过一次，不是空验证。
