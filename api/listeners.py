@@ -86,6 +86,7 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
     try:
         _nick = event.get_sender_name()
     except Exception:
+        # 部分适配器无该访问器/抛错：昵称缺席只影响显示名,不阻断评审
         _nick = None
     # P-F：引用前缀/转发占位不冒充发言人本人，清洗后再进评审
     text = sanitize_text(event.message_str or "")
@@ -137,7 +138,8 @@ async def on_group_message(deps: Deps, event: AstrMessageEvent) -> None:
                             umo=getattr(event, "unified_msg_origin", "") or "",
                         )
         except Exception:
-            logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）")
+            # 意外异常属疑难：warning 必须带堆栈，否则后台静默死因不可查
+            logger.warning("[心弦] 后台评估任务异常（忽略，不影响对话）", exc_info=True)
 
     if deps.registry is not None:
         deps.registry.spawn(_bg(), name=f"judge:{group_id}/{user_id}")
@@ -170,6 +172,7 @@ async def _on_llm_request_inner(
     try:
         nickname = event.get_sender_name()
     except Exception:
+        # 同上：昵称缺席时注入块回落 user_id 显示
         nickname = None
     logs = await deps.favor.query_logs(group_id, user_id, limit=15)
     # recent_events 是 async def——漏 await 会返回协程，注入链路在

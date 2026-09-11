@@ -14,9 +14,29 @@ query_logs）例外（X9）**：经 asyncio.to_thread 执行、会真实让出�
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 
+from ..core.decimal import round1
 from ..core.models import FavorRecord
+
+
+def clamp_daily(
+    delta: float, gain: float, cap_up: float, cap_down: float
+) -> tuple[float, bool]:
+    """按当日净增量做双向限幅（单一实现，base 兼容路径与 SQLite 事务内共用）。
+
+    gain 为当日已记净增量；返回 (限幅后 delta, 是否触顶截断)。
+    allowed 收敛到 1 位小数：cap_up - used 这类减法会引入 IEEE-754 噪声
+    （如 0.3-0.1=0.1999…），不收敛会让 clamped 标志被误判。"""
+    if delta > 0:
+        used = max(0.0, gain)
+        allowed = max(0.0, min(delta, cap_up - used))
+    else:
+        used = max(0.0, -gain)
+        allowed = -max(0.0, min(-delta, cap_down - used))
+    allowed = round1(allowed)
+    return allowed, allowed != delta
 
 
 class StorageBackend(ABC):
@@ -51,6 +71,78 @@ class StorageBackend(ABC):
             (更新后的记录, 实际生效的变化量)。越界截断时实际变化量小于 delta。
             delta 与返回值精度均为一位小数。
         """
+
+    async def apply_favor_change(
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        *,
+        max_favor: float,
+        min_favor: float = -100.0,
+        decay: tuple[float, float, float, float] | None = None,
+        default_favor: float = 0.0,
+        day: str = "",
+        reason: str = "api",
+        source: str = "api",
+        message: str = "",
+        cooldown_key: str | None = None,
+        daily_cap_up: float | None = None,
+        daily_cap_down: float | None = None,
+    ) -> tuple[FavorRecord, float, float, bool]:
+        """主写路径：每日限幅 + 数值变动 + 当日额度 + 流水（+ 冷却）。
+
+        数值语义与 apply_delta 完全一致（衰减/封顶/收敛，见其 docstring）；
+        real≠0 时同记 daily_gain 与 favor_log，cooldown_key 非空时刷新冷却。
+        daily_cap_* 与 day 同时给出时在写入前按当日净增量双向限幅
+        （clamp_daily 单一实现）。allowed 归零时不动库直接返回。
+        Returns: (更新后的记录, 实际生效的变化量, 限幅后拟写入量, 是否触顶截断)。
+
+        本类提供的是**兼容默认实现**（apply_delta/add_daily_gain/add_log/
+        touch_event 多次 commit、限幅读在事务外）——第三方后端不实现本方法
+        也能工作（Sourcery #66：新抽象方法会让既有子类不可实例化）。
+        SQLiteBackend 覆写为单事务版本：限幅读也在锁内，并发写不会双双
+        通过限幅；任一步失败整体回滚，漂移行不可能出现。"""
+
+        allowed, capped = delta, False
+        if daily_cap_up is not None and daily_cap_down is not None and day:
+            gain = await self.daily_gain(group_id, user_id, day)
+            allowed, capped = clamp_daily(delta, gain, daily_cap_up, daily_cap_down)
+        if allowed == 0:
+            rec = await self.get(group_id, user_id)
+            base_favor = rec.favor if rec else float(default_favor or 0.0)
+            return (
+                FavorRecord(group_id, user_id, base_favor, time.time()),
+                0.0,
+                0.0,
+                True,
+            )
+        rec, real = await self.apply_delta(
+            group_id,
+            user_id,
+            allowed,
+            max_favor,
+            min_favor=min_favor,
+            decay=decay,
+            default_favor=default_favor,
+        )
+        if real:
+            if day:
+                await self.add_daily_gain(group_id, user_id, day, real)
+            await self.add_log(
+                group_id,
+                user_id,
+                real,
+                round1(rec.favor - real),
+                rec.favor,
+                reason,
+                source,
+                time.time(),
+                message,
+            )
+        if cooldown_key:
+            await self.touch_event(group_id, user_id, cooldown_key, time.time())
+        return rec, real, allowed, capped
 
     @abstractmethod
     async def set_value(self, group_id: str, user_id: str, value: float) -> FavorRecord:

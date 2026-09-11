@@ -481,10 +481,28 @@ class FavorService:
                     favor_after=rec.favor,
                     favor_before=rec.favor,
                 )
-        # 2. 每日双向限幅
-        allowed, capped = await self._cap_by_daily(group_id, user_id, delta)
-        if allowed == 0:
-            rec = await self.get(group_id, user_id)
+        # 2+3. 落库（存储层单事务：每日双向限幅 + min/max 封顶 + 1 位小数
+        #    收敛 + 当日额度 + 流水 + 冷却，一个 commit——X-P1c 原子化；
+        #    限幅读在锁内，并发写不会双双通过当日额度（Sourcery #66）；
+        #    无记录时以 default_favor 为基数，而非 0；额度耗尽不动任何表）
+        rec, real, allowed, capped = await self._storage.apply_favor_change(
+            group_id,
+            user_id,
+            delta,
+            max_favor=self.max_favor,
+            min_favor=self.min_favor,
+            decay=self._decay,
+            default_favor=self.default_favor,
+            day=self._today().isoformat(),
+            reason=reason,
+            source=source,
+            message=message,
+            cooldown_key=cooldown_key,
+            daily_cap_up=self.daily_cap_up,
+            daily_cap_down=self.daily_cap_down,
+        )
+        if real == 0 and allowed == 0:
+            # 当日额度耗尽：与历史行为一致（clamped=True、零变动、不写流水）
             return FavorChange(
                 0,
                 reason,
@@ -493,34 +511,6 @@ class FavorService:
                 favor_after=rec.favor,
                 favor_before=rec.favor,
             )
-        # 3. 落库（锁内原子，含 min_favor..max_favor 封顶 + 1 位小数收敛；
-        #    无记录时以 default_favor 为基数，而非 0）
-        rec, real = await self._storage.apply_delta(
-            group_id,
-            user_id,
-            allowed,
-            self.max_favor,
-            self.min_favor,
-            decay=self._decay,
-            default_favor=self.default_favor,
-        )
-        if real:
-            await self._storage.add_daily_gain(
-                group_id, user_id, self._today().isoformat(), real
-            )
-            await self._storage.add_log(
-                group_id,
-                user_id,
-                real,
-                round1(rec.favor - real),
-                rec.favor,
-                reason,
-                source,
-                now,
-                message,
-            )
-        if cooldown_key:
-            await self._storage.touch_event(group_id, user_id, cooldown_key, now)
         return FavorChange(
             real,
             reason,
@@ -530,24 +520,6 @@ class FavorService:
             # 权威基线：与 add_log 同源（落库后回减 real），零漂移
             favor_before=round1(rec.favor - real),
         )
-
-    async def _cap_by_daily(
-        self, group_id: str, user_id: str, delta: float
-    ) -> tuple[float, bool]:
-        """按当日净增量做双向限幅。返回 (限幅后的delta, 是否被截断)。"""
-        today = self._today().isoformat()
-        # 读时收敛，消除累积小增量的浮点漂移，使比较干净
-        gain = round1(await self._storage.daily_gain(group_id, user_id, today))
-        if delta > 0:
-            used = max(0.0, gain)
-            allowed = max(0.0, min(delta, self.daily_cap_up - used))
-        else:
-            used = max(0.0, -gain)
-            allowed = -max(0.0, min(-delta, self.daily_cap_down - used))
-        # allowed 也要收敛：daily_cap_up - used 这类减法会引入 IEEE-754 噪声
-        # （如 0.3-0.1=0.1999…），不收敛会让 clamped 标志被误判。
-        allowed = round1(allowed)
-        return allowed, allowed != delta
 
     # ---------- 管理 ----------
 

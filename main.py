@@ -57,7 +57,7 @@ def _split_phrases(raw: str) -> set[str]:
     "astrbot_plugin_xinxian",
     "yiwuerxin",
     "小千的心弦好感度系统",
-    "1.31.1",
+    "1.31.2",
     "https://github.com/yiwuerxin/astrbot_plugin_xinxian",
 )
 class XinxianPlugin(Star):
@@ -238,7 +238,16 @@ class XinxianPlugin(Star):
 
     # ---------------- 事件钩子（薄壳转发） ----------------
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    # 框架排序实测（4.26.7 star_handler.py：sort(key=-priority)，数字大者
+    # 先执行；waking_check 按注册表序派发，star_request 逐个执行并在
+    # is_stopped 后中断）：麦麦 ≥6.12.0 的 -1000 实际排在所有默认 0 之后
+    # （最后），"先跑并 stop_event 掐断默认优先级监听器"在其上不成立——
+    # 饿死只可能来自优先级更高（或同优先级更早注册）的接管型监听器，
+    # 而部署环境各插件实际取值无法逐版本确证。本监听器是纯后台观察者
+    # （不发声、不 stop、不改正文），取 1000 保证恒先于任何接管者执行
+    # （priority=1 盖不过正数大优先级的接管者）；文字唤醒默认关，开启时
+    # 由 _xinxian_cmd_done 防重。
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=1000)
     async def _on_group_msg(self, event: AstrMessageEvent):
         # 文字唤醒：群里直接发文字（不用 /）触发查询指令；与 / 指令一致，之后照常跑评估引擎
         if self._text_wake_enabled and not getattr(event, "_xinxian_cmd_done", False):

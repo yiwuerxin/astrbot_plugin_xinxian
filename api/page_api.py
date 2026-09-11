@@ -7,6 +7,8 @@ handler 使用 Flask 的 ``jsonify`` / ``request``；鉴权由主面板继承，
 
 from __future__ import annotations
 
+from astrbot.api import logger
+
 PLUGIN_NAME = "astrbot_plugin_xinxian"
 
 try:  # dashboard 服务基于 Quart（异步 Flask），用 quart 的 jsonify/request
@@ -80,6 +82,7 @@ class PageApi:
             )
             return jsonify({"success": True, "logs": logs, "count": len(logs)})
         except Exception as e:  # noqa: BLE001
+            logger.debug(f"[心弦] 面板接口失败: {e}", exc_info=True)
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_groups(self):
@@ -88,6 +91,7 @@ class PageApi:
             groups = await self._favor.distinct_groups()
             return jsonify({"success": True, "groups": groups})
         except Exception as e:  # noqa: BLE001
+            logger.debug(f"[心弦] 面板接口失败: {e}", exc_info=True)
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_users(self):
@@ -98,6 +102,7 @@ class PageApi:
             users = await self._favor.standings(group_id, limit)
             return jsonify({"success": True, "users": users, "count": len(users)})
         except Exception as e:  # noqa: BLE001
+            logger.debug(f"[心弦] 面板接口失败: {e}", exc_info=True)
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_member(self):
@@ -141,6 +146,7 @@ class PageApi:
                 }
             )
         except Exception as e:  # noqa: BLE001
+            logger.debug(f"[心弦] 面板接口失败: {e}", exc_info=True)
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_refresh_impression(self):
@@ -156,6 +162,7 @@ class PageApi:
             ok, msg = await self._impressions.refresh_now(group_id, user_id)
             return jsonify({"success": ok, "message": msg})
         except Exception as e:  # noqa: BLE001
+            logger.debug(f"[心弦] 面板接口失败: {e}", exc_info=True)
             return jsonify({"success": False, "error": str(e)})
 
     async def handle_undo(self):
@@ -172,4 +179,5 @@ class PageApi:
         except ValueError as e:
             return jsonify({"success": False, "error": str(e)})
         except Exception as e:  # noqa: BLE001
+            logger.debug(f"[心弦] 面板接口失败: {e}", exc_info=True)
             return jsonify({"success": False, "error": str(e)})

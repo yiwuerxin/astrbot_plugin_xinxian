@@ -20,6 +20,7 @@ from astrbot.api.star import Context
 from ..core.judge_context import extract_history_text
 from ..core.judge_parse import ParsedJudge, parse as parse_judge
 from ..core.judge_prompt import render, tier_ranges_line
+from ..core.maisoul_probe import resolve_maisoul_api
 from ..storage.base import StorageBackend
 
 
@@ -84,7 +85,10 @@ class JudgeService:
         has_at_bot: bool = False,
         is_reply_bot: bool = False,
     ) -> JudgeResult | None:
-        """评估一条消息对小千的态度。返回 None 表示跳过或降级。"""
+        """评估一条消息对小千的态度。返回 None 表示跳过或降级。
+
+        跳过分支（未启用/@门/冷却）是正常控制流，不记日志；真降级
+        （provider 失败/解析失败）在对应分支 warning/debug 留痕。"""
         if not self._enabled or not text.strip():
             return None
         if self._only_when_at_or_reply and not (has_at_bot or is_reply_bot):
@@ -137,6 +141,9 @@ class JudgeService:
 
         result = self._parse(content)
         if result is None:
+            logger.debug(
+                f"[心弦] judge 输出解析失败（本轮放弃，冷却照常）: {content[:80]!r}"
+            )
             return None
         return result
 
@@ -164,18 +171,21 @@ class JudgeService:
     async def _maisoul_replyer_provider(self):
         """麦麦插件在场时取其 replyer 绑定的 provider（v1.31.0 模型联动）。
 
-        未装麦麦 / facade 无该 API / 解析失败 / 无可用 provider 一律返回
-        None，调用方回落自有链——联动是增强不是依赖。"""
+        探测走 core/maisoul_probe 唯一实现（v1.31.1 修复：本函数原是
+        名字直查的独立副本，本地化（非默认英文）目录名下恒 None，联动
+        静默失明——与桥侧共用同一探测后三路联动行为一致）。未装麦麦 /
+        facade 无该 API / 解析失败 / 无可用 provider 一律返回 None，
+        调用方回落自有链——联动是增强不是依赖。"""
         try:
-            star = self._context.get_registered_star("astrbot_plugin_maisoul")
-            api = getattr(getattr(star, "star_cls", None), "api", None)
-            if api is None or not hasattr(api, "get_replyer_provider"):
+            api = resolve_maisoul_api(self._context, required=("get_replyer_provider",))
+            if api is None:
                 return None
             prov = await api.get_replyer_provider()
             if prov is not None:
                 logger.debug("[心弦] 评审模型跟随麦麦 replyer 绑定")
             return prov
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[心弦] 取麦麦 replyer 绑定失败（回落自有链）: {e}")
             return None
 
     async def _persona_ctx(self, event: AstrMessageEvent) -> tuple[str, str]:

@@ -17,7 +17,7 @@ from pathlib import Path
 from ..core.decay import consolidate_half_life, effective_favor
 from ..core.decimal import round1
 from ..core.models import FavorRecord
-from .base import StorageBackend
+from .base import StorageBackend, clamp_daily
 from .migrations import migrate
 
 
@@ -32,8 +32,12 @@ class SQLiteBackend(StorageBackend):
     async def init(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        # 并发三件套：WAL + busy_timeout + synchronous=NORMAL（WAL 模式下
+        # NORMAL 已保证崩溃一致性，FULL 只多付每次提交的 fsync——2026-09-11
+        # 审查发现第三件缺失，补齐）
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=3000")
+        conn.execute("PRAGMA synchronous=NORMAL")
         with self._lock:
             migrate(conn)
         self._conn = conn
@@ -70,6 +74,61 @@ class SQLiteBackend(StorageBackend):
             points=row[8] or "[]",
         )
 
+    def _compute_favor_write(
+        self,
+        conn,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        max_favor: float,
+        min_favor: float,
+        decay,
+        default_favor: float,
+        now: float,
+    ) -> tuple[float, float, float]:
+        """锁内计算一次好感写入的新值（须在 self._lock 内、事务中调用）。
+
+        读存量 → 衰减到当下 → 叠加 delta → 封顶收敛。返回
+        (new_value, real_delta, new_half_life)，与 apply_delta /
+        apply_favor_change 共用同一套数值语义（单一真相）。"""
+        row = conn.execute(
+            "SELECT favor, updated_at, half_life FROM favor WHERE group_id=? AND user_id=?",
+            (group_id, user_id),
+        ).fetchone()
+        if row:
+            current, last_ts, half_life = (
+                float(row[0]),
+                row[1],
+                float(row[2] or 10.0),
+            )
+        else:
+            # 无记录以 default_favor 为基数（updated_at=0 表示从未互动，不吃衰减）
+            current, last_ts, half_life = float(default_favor or 0.0), 0.0, 10.0
+        # 时间衰减（指数遗忘曲线）：落库前先把存量衰减到当下（锁定），再叠加本次增减
+        if decay:
+            base, growth, h_max, baseline = decay
+            current = effective_favor(
+                current,
+                last_ts,
+                now,
+                half_life=half_life,
+                baseline=baseline,
+            )
+            # 正向互动巩固半衰期（SM-2 式），新 h 随本次写库落列
+            new_h = consolidate_half_life(
+                half_life,
+                base=base,
+                growth=growth,
+                h_max=h_max,
+                positive=delta > 0,
+            )
+        else:
+            new_h = half_life
+        # 收敛到 1 位小数：吸收每日限幅边界处的浮点幽灵微增量
+        new_value = round1(max(min_favor, min(max_favor, current + delta)))
+        real_delta = round1(new_value - current)
+        return new_value, real_delta, new_h
+
     async def apply_delta(
         self,
         group_id: str,
@@ -80,45 +139,23 @@ class SQLiteBackend(StorageBackend):
         decay: tuple[float, float, float, float] | None = None,
         default_favor: float = 0.0,
     ) -> tuple[FavorRecord, float]:
+        """只动数值的增减（数值语义见 base.py）。主写路径走
+        apply_favor_change（同事务带额度/流水/冷却）；本方法保留给
+        无需记账的调用方。"""
         now = time.time()
         with self._lock:
             conn = self._c()
-            row = conn.execute(
-                "SELECT favor, updated_at, half_life FROM favor WHERE group_id=? AND user_id=?",
-                (group_id, user_id),
-            ).fetchone()
-            if row:
-                current, last_ts, half_life = (
-                    float(row[0]),
-                    row[1],
-                    float(row[2] or 10.0),
-                )
-            else:
-                # 无记录以 default_favor 为基数（updated_at=0 表示从未互动，不吃衰减）
-                current, last_ts, half_life = float(default_favor or 0.0), 0.0, 10.0
-            # 时间衰减（指数遗忘曲线）：落库前先把存量衰减到当下（锁定），再叠加本次增减
-            if decay:
-                base, growth, h_max, baseline = decay
-                current = effective_favor(
-                    current,
-                    last_ts,
-                    now,
-                    half_life=half_life,
-                    baseline=baseline,
-                )
-                # 正向互动巩固半衰期（SM-2 式），新 h 随本次写库落列
-                new_h = consolidate_half_life(
-                    half_life,
-                    base=base,
-                    growth=growth,
-                    h_max=h_max,
-                    positive=delta > 0,
-                )
-            else:
-                new_h = half_life
-            # 收敛到 1 位小数：吸收每日限幅边界处的浮点幽灵微增量
-            new_value = round1(max(min_favor, min(max_favor, current + delta)))
-            real_delta = round1(new_value - current)
+            new_value, real_delta, new_h = self._compute_favor_write(
+                conn,
+                group_id,
+                user_id,
+                delta,
+                max_favor,
+                min_favor,
+                decay,
+                default_favor,
+                now,
+            )
             conn.execute(
                 "INSERT INTO favor(group_id, user_id, favor, updated_at, half_life) VALUES(?,?,?,?,?) "
                 "ON CONFLICT(group_id, user_id) DO UPDATE SET "
@@ -129,6 +166,127 @@ class SQLiteBackend(StorageBackend):
         return (
             FavorRecord(group_id, user_id, new_value, now, half_life=new_h),
             real_delta,
+        )
+
+    async def apply_favor_change(
+        self,
+        group_id: str,
+        user_id: str,
+        delta: float,
+        *,
+        max_favor: float,
+        min_favor: float = -100.0,
+        decay: tuple[float, float, float, float] | None = None,
+        default_favor: float = 0.0,
+        day: str = "",
+        reason: str = "api",
+        source: str = "api",
+        message: str = "",
+        cooldown_key: str | None = None,
+        daily_cap_up: float | None = None,
+        daily_cap_down: float | None = None,
+    ) -> tuple[FavorRecord, float, float, bool]:
+        """主写路径单事务：每日限幅 + 数值变动 + 当日额度 + 流水 (+ 冷却)。
+
+        历史缺陷（2026-09-11 审查 X-P1c）：favor_service 曾按
+        apply_delta → add_daily_gain → add_log → touch_event 四次独立
+        commit 串接，进程在中间崩溃会留下"好感已变、流水/额度缺失"的
+        漂移行——undo、里程碑、限幅记账全部失真。与 apply_undo 同一
+        模式：锁内 BEGIN → 全部语句 → commit，任一步失败整体回滚。
+        限幅读（daily_gain）也在同一事务内（Sourcery #66：并发写不会
+        双双读到同一剩余额度后超额落库）。返回
+        (记录, 实际变化量, 限幅后拟写入量, 是否触顶截断)。"""
+        now = time.time()
+        with self._lock:
+            conn = self._c()
+            try:
+                conn.execute("BEGIN")
+                allowed, capped = delta, False
+                if daily_cap_up is not None and daily_cap_down is not None and day:
+                    grow = conn.execute(
+                        "SELECT gain FROM daily_gain "
+                        "WHERE group_id=? AND user_id=? AND day=?",
+                        (group_id, user_id, day),
+                    ).fetchone()
+                    allowed, capped = clamp_daily(
+                        delta,
+                        round1(grow[0]) if grow else 0.0,
+                        daily_cap_up,
+                        daily_cap_down,
+                    )
+                    if allowed == 0:
+                        # 当日额度耗尽：不动任何表（与历史行为一致——
+                        # 旧实现在 service 层提前 return，不写不摸）
+                        conn.rollback()
+                        frow = conn.execute(
+                            "SELECT favor FROM favor WHERE group_id=? AND user_id=?",
+                            (group_id, user_id),
+                        ).fetchone()
+                        cur = (
+                            round1(float(frow[0]))
+                            if frow
+                            else round1(float(default_favor or 0.0))
+                        )
+                        return (
+                            FavorRecord(group_id, user_id, cur, now),
+                            0.0,
+                            0.0,
+                            True,
+                        )
+                new_value, real_delta, new_h = self._compute_favor_write(
+                    conn,
+                    group_id,
+                    user_id,
+                    allowed,
+                    max_favor,
+                    min_favor,
+                    decay,
+                    default_favor,
+                    now,
+                )
+                conn.execute(
+                    "INSERT INTO favor(group_id, user_id, favor, updated_at, half_life) VALUES(?,?,?,?,?) "
+                    "ON CONFLICT(group_id, user_id) DO UPDATE SET "
+                    "favor=excluded.favor, updated_at=excluded.updated_at, half_life=excluded.half_life",
+                    (group_id, user_id, new_value, now, new_h),
+                )
+                if real_delta:
+                    if day:
+                        conn.execute(
+                            "INSERT INTO daily_gain(group_id, user_id, day, gain) VALUES(?,?,?,?) "
+                            "ON CONFLICT(group_id, user_id, day) DO UPDATE SET gain=gain+excluded.gain",
+                            (group_id, user_id, day, real_delta),
+                        )
+                    conn.execute(
+                        "INSERT INTO favor_log(group_id, user_id, delta, favor_before, favor_after, reason, source, ts, message) "
+                        "VALUES(?,?,?,?,?,?,?,?,?)",
+                        (
+                            group_id,
+                            user_id,
+                            real_delta,
+                            round1(new_value - real_delta),
+                            new_value,
+                            (reason or "")[:200],
+                            source,
+                            now,
+                            (message or "")[:200],
+                        ),
+                    )
+                if cooldown_key:
+                    conn.execute(
+                        "INSERT INTO cooldown(group_id, user_id, key, last_ts) VALUES(?,?,?,?) "
+                        "ON CONFLICT(group_id, user_id, key) DO UPDATE SET last_ts=excluded.last_ts",
+                        (group_id, user_id, cooldown_key, now),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return (
+            FavorRecord(group_id, user_id, new_value, now, half_life=new_h),
+            real_delta,
+            allowed,
+            capped,
         )
 
     def _upsert(

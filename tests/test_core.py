@@ -2503,3 +2503,240 @@ class TestFavorChangeBaseline:
         change = asyncio.run(self.svc.change("g", "u", 0.0, reason="api"))
         assert change.delta == 0
         assert change.favor_before == change.favor_after
+
+
+def test_listener_priority_before_maisoul():
+    """群监听器（纯观察者）优先级必须恒先于任何接管型监听器。
+
+    框架排序实测（4.26.7 star_handler.py：sort(key=-priority)，数字大者
+    先执行）：麦麦 ≥6.12.0 的 -1000 实际排在所有默认 0 之后（最后），
+    "先跑并 stop_event 掐断默认优先级监听器"在其上不成立——饿死只可能
+    来自优先级更高（或同优先级更早注册）的接管者，部署环境实际取值
+    无法逐版本确证。观察者不发声不 stop，取 1000 恒先于任何接管者
+    （priority=1 盖不过正数大优先级）。源码文本比对（装饰器参数离线
+    无法实例化验证）。"""
+    main_txt = (Path(__file__).resolve().parent.parent / "main.py").read_text(
+        encoding="utf-8"
+    )
+    assert "GROUP_MESSAGE, priority=1000" in main_txt
+
+
+def test_maisoul_api_duck_fallback():
+    """名字直查失败时的鸭子类型兜底（实际部署环境实报）。
+
+    插件以本地化（非默认英文）目录名部署时 get_registered_star
+    ("astrbot_plugin_maisoul") 返回 None——调制/跃迁推送/模型联动三路
+    同时静默失效。兜底遍历 get_all_stars 认挂了完整情绪 facade 的 star。"""
+    import asyncio
+
+    from astrbot_plugin_xinxian.api import emotion_bridge as eb
+
+    class _Api:
+        async def get_feedback(self, gid):
+            return {"pfb": 2, "valence": 0.5}
+
+        async def apply_emotion_event(self, gid, word, intensity=0.5):
+            return True
+
+    class _Star:
+        def __init__(self, api):
+            self.star_cls = type("S", (), {"api": api})()
+
+    class _Ctx:
+        def __init__(self, by_name, all_stars):
+            self._by_name, self._all = by_name, all_stars
+
+        def get_registered_star(self, name):
+            return self._by_name
+
+        def get_all_stars(self):
+            return self._all
+
+    real = _Api()
+    # 1) 名字命中：直查路径
+    assert eb._maisoul_api(_Ctx(_Star(real), [])) is real
+    # 2) 名字查不到 + 遍历兜底命中
+    assert eb._maisoul_api(_Ctx(None, [_Star(object()), _Star(real)])) is real
+    # 3) 两路都无：None
+    assert eb._maisoul_api(_Ctx(None, [_Star(object())])) is None
+
+    # 4) 调制端到端：兜底路径下 pfb=2 同向 ×1.1
+    async def _run():
+        return await eb.modulate_delta(_Ctx(None, [_Star(real)]), "g1", 1.0)
+
+    assert asyncio.run(_run()) == 1.1
+
+
+# ---------------- v1.31.1 探测下沉 + 主写路径原子化 ----------------
+
+
+class TestMaisoulProbe:
+    """core/maisoul_probe：跨插件探测的唯一实现（三路联动共用）。
+
+    事故背景：探测逻辑曾在 emotion_bridge 与 judge_service 各持一份，
+    桥修复鸭子兜底时漏了模型联动那路——本地化目录名下静默失明数日。"""
+
+    def _probe(self):
+        from astrbot_plugin_xinxian.core.maisoul_probe import resolve_maisoul_api
+
+        return resolve_maisoul_api
+
+    def _fakes(self):
+        class _Api:
+            async def get_feedback(self, gid):
+                return {"pfb": 0}
+
+            async def apply_emotion_event(self, gid, word, intensity=0.5):
+                return True
+
+            async def get_replyer_provider(self):
+                return "PROV"
+
+        class _Star:
+            def __init__(self, api):
+                self.star_cls = type("S", (), {"api": api})()
+
+        class _Ctx:
+            def __init__(self, by_name, all_stars):
+                self._by_name, self._all = by_name, all_stars
+
+            def get_registered_star(self, name):
+                return self._by_name
+
+            def get_all_stars(self):
+                return self._all
+
+        return _Api, _Star, _Ctx
+
+    def test_direct_hit_by_name(self):
+        resolve = self._probe()
+        _Api, _Star, _Ctx = self._fakes()
+        real = _Api()
+        assert resolve(_Ctx(_Star(real), [])) is real
+
+    def test_model_linkage_survives_localized_dir_name(self):
+        """核心回归：名字直查恒 None（本地化目录名部署）时，模型联动
+        （required=get_replyer_provider）也必须经鸭子兜底命中——修复前
+        judge_service 持有的是无兜底的独立副本，follow_maisoul 失明。"""
+        resolve = self._probe()
+        _Api, _Star, _Ctx = self._fakes()
+        real = _Api()
+        ctx = _Ctx(None, [_Star(object()), _Star(real)])
+        assert resolve(ctx, required=("get_replyer_provider",)) is real
+
+    def test_required_surface_filters_partial_facade(self):
+        """只挂了情绪面、没有联动方法的 star 不能被模型联动认领。"""
+        resolve = self._probe()
+
+        class _EmotionOnly:
+            async def get_feedback(self, gid):
+                return {"pfb": 0}
+
+            async def apply_emotion_event(self, gid, word, intensity=0.5):
+                return True
+
+        class _Star:
+            def __init__(self, api):
+                self.star_cls = type("S", (), {"api": api})()
+
+        class _Ctx:
+            def get_registered_star(self, name):
+                return None
+
+            def get_all_stars(self):
+                return [_Star(_EmotionOnly())]
+
+        assert resolve(_Ctx(), required=("get_replyer_provider",)) is None
+        # 情绪面默认要求仍命中
+        assert resolve(_Ctx()) is not None
+
+    def test_probe_never_raises(self):
+        """探测异常（context 缺方法/抛错）一律 None，不抛回调用方。"""
+        resolve = self._probe()
+
+        class _Boom:
+            def get_registered_star(self, name):
+                raise RuntimeError("framework exploded")
+
+        assert resolve(_Boom()) is None
+        assert resolve(object()) is None
+        assert resolve(None) is None
+
+
+# ---------------- X-P1c 主写路径单事务 ----------------
+
+
+class TestApplyFavorChangeAtomic:
+    """X-P1c：主写路径（数值+额度+流水+冷却）单事务原子。
+
+    修复前 apply_delta/add_daily_gain/add_log 各自 commit——流水写入
+    失败时好感已落库，留下"数值已变、记账缺失"的漂移行。"""
+
+    def setup_method(self):
+        import tempfile
+
+        from astrbot_plugin_xinxian.storage.sqlite_backend import SQLiteBackend
+
+        self.dir = tempfile.mkdtemp()
+        self.backend = SQLiteBackend(Path(self.dir) / "t.db")
+        asyncio.run(self.backend.init())
+        # 放宽每日限幅：裸默认 4/8 会被基线一笔吃满，第二笔 allowed=0
+        # 走不进流水插入，原子性场景构造不出来
+        self.svc = FavorService(
+            self.backend,
+            LevelTable.from_config(None),
+            daily_cap_up=50,
+            daily_cap_down=50,
+        )
+
+    def test_log_failure_rolls_back_everything(self):
+        # 基线：一次正常变更（表完好时）。经济学层对陌生档有缩放，
+        # 基线取实际落库值而非传入值
+        base_change = asyncio.run(self.svc.change("g", "u", 5.0))
+        base_favor = asyncio.run(self.backend.get("g", "u")).favor
+        assert base_favor == base_change.favor_after
+        day = self.svc._today().isoformat()
+        base_gain = asyncio.run(self.backend.daily_gain("g", "u", day))
+        assert base_gain == base_change.delta
+        # 破坏流水表——主写路径的流水插入将在事务内失败
+        self.backend._conn.execute("DROP TABLE favor_log")
+        self.backend._conn.commit()
+        with pytest.raises(Exception):
+            asyncio.run(self.svc.change("g", "u", 3.0))
+        # 整体回滚：好感不动、额度不多记（旧实现四次独立 commit，
+        # 此处 favor 已 +3 而流水/额度记账缺失——漂移行）
+        assert asyncio.run(self.backend.get("g", "u")).favor == base_favor
+        assert asyncio.run(self.backend.daily_gain("g", "u", day)) == base_gain
+
+
+class TestBackendCompatDefault:
+    """Sourcery #66:apply_favor_change 不得是新增抽象方法——只实现既有
+    ABC 面的第三方 StorageBackend 子类必须继续可用且限幅语义不丢。"""
+
+    def test_default_impl_enforces_caps(self, tmp_path):
+        from astrbot_plugin_xinxian.storage.base import StorageBackend
+
+        class _CompatOnly(SQLiteBackend):
+            """模拟外部后端:显式回落 base 的兼容默认实现(不经 SQLite 单事务)。"""
+
+            async def apply_favor_change(self, *a, **k):
+                return await StorageBackend.apply_favor_change(self, *a, **k)
+
+        b = _CompatOnly(tmp_path / "compat.db")
+        asyncio.run(b.init())
+        svc = FavorService(
+            b,
+            LevelTable.from_config(None),
+            daily_cap_up=5,
+            daily_cap_down=5,
+        )
+        c1 = asyncio.run(svc.change("g", "u", 3.0))
+        c2 = asyncio.run(svc.change("g", "u", 5.0))  # 额度剩 2 → 截断
+        c3 = asyncio.run(svc.change("g", "u", 1.0))  # 额度耗尽 → 零变动
+        day = svc._today().isoformat()
+        assert c1.delta == 3.0 and not c1.clamped
+        assert c2.delta == 2.0 and c2.clamped
+        assert c3.delta == 0 and c3.clamped
+        assert asyncio.run(b.daily_gain("g", "u", day)) == 5.0
+        logs = asyncio.run(b.query_logs("g", "u", limit=10))
+        assert len(logs) == 2  # 额度耗尽那笔不写流水
