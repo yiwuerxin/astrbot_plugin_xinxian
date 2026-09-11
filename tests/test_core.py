@@ -2506,17 +2506,19 @@ class TestFavorChangeBaseline:
 
 
 def test_listener_priority_before_maisoul():
-    """群监听器优先级必须先于麦麦之魂（实际部署环境实证）。
+    """群监听器（纯观察者）优先级必须恒先于任何接管型监听器。
 
-    maisoul 以 priority=-1000 全面接管并对每条消息 stop_event；框架
-    star_handler 排序为 sort(key=-priority)（数字大者先跑），本插件监听器
-    若晚于它运行，事件传播被掐断——@ 消息零送达监听器、评审零执行、
-    favor 恒 0.0、cooldown 表全空。评审是纯后台观察者，priority=1 恒先于
-    -1000 无副作用。源码文本比对（装饰器参数离线无法实例化验证）。"""
+    框架排序实测（4.26.7 star_handler.py：sort(key=-priority)，数字大者
+    先执行）：麦麦 ≥6.12.0 的 -1000 实际排在所有默认 0 之后（最后），
+    "先跑并 stop_event 掐断默认优先级监听器"在其上不成立——饿死只可能
+    来自优先级更高（或同优先级更早注册）的接管者，部署环境实际取值
+    无法逐版本确证。观察者不发声不 stop，取 1000 恒先于任何接管者
+    （priority=1 盖不过正数大优先级）。源码文本比对（装饰器参数离线
+    无法实例化验证）。"""
     main_txt = (Path(__file__).resolve().parent.parent / "main.py").read_text(
         encoding="utf-8"
     )
-    assert "GROUP_MESSAGE, priority=1" in main_txt
+    assert "GROUP_MESSAGE, priority=1000" in main_txt
 
 
 def test_maisoul_api_duck_fallback():
